@@ -9,13 +9,23 @@ from setuptools import setup
 ROOT = Path(__file__).parent
 
 
+def _pep508_from_vcs(requirement: str) -> str:
+    if requirement.startswith("git+"):
+        match = re.search(r"/([^/]+?)(?:\.git)?$", requirement)
+        if not match:
+            raise RuntimeError(f"Unable to derive package name from {requirement}")
+        package = match.group(1)
+        return f"{package} @ {requirement}"
+    return requirement
+
+
 def read_requirements(path: Path) -> list[str]:
-    lines = []
+    lines: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        lines.append(line)
+        lines.append(_pep508_from_vcs(line))
     return lines
 
 
