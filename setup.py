@@ -9,12 +9,18 @@ from setuptools import setup
 ROOT = Path(__file__).parent
 
 
+VCS_NAME_OVERRIDES = {
+    "tk-core": "sgtk",
+}
+
+
 def _pep508_from_vcs(requirement: str) -> str:
     if requirement.startswith("git+"):
         match = re.search(r"/([^/]+?)(?:\.git)?$", requirement)
         if not match:
             raise RuntimeError(f"Unable to derive package name from {requirement}")
-        package = match.group(1)
+        repo_name = match.group(1)
+        package = VCS_NAME_OVERRIDES.get(repo_name, repo_name)
         return f"{package} @ {requirement}"
     return requirement
 
