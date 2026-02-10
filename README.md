@@ -9,13 +9,13 @@ and project metadata.
 Install from Git (the `requirements.txt` is used automatically by `setup.py`):
 
 ```bash
-pip install git+https://github.com/nolabel/nl_sgtk.git
+pip install git+https://github.com/NOLABEL-VFX/nl_sgtk.git
 ```
 
 To install in editable mode:
 
 ```bash
-pip install -e git+https://github.com/nolabel/nl_sgtk.git#egg=nl_sgtk
+pip install -e git+https://github.com/NOLABEL-VFX/nl_sgtk.git#egg=nl_sgtk
 ```
 
 ## Usage
