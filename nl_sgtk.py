@@ -1,17 +1,18 @@
 from __future__ import annotations
-from functools import lru_cache
-
 import logging
 import webbrowser
-from typing import Optional, Tuple
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Tuple
 
 import sgtk
 from shotgun_api3 import shotgun
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import re
 from urllib.parse import parse_qs, urlparse
 
 log = logging.getLogger(__name__)
+
+# Keep a module version to align with setup.py
+__version__ = "0.1.0"
 
 # --------------------------------------------------------------------------------------
 # Field definitions / constants
@@ -239,6 +240,18 @@ def _fetch_entity_context(
         row['sg_status_list'] = _status_name(row['sg_status_list'])
     return row
 
+
+def _project_fields() -> List[str]:
+    return [
+        "code",
+        "name",
+        "sg_status",
+        "is_template",
+        "sg_project_path",
+        "sg_master_fps",
+        "image",
+    ]
+
 # --------------------------------------------------------------------------------------
 # Shotgun Toolkit helpers (public but technical)
 # --------------------------------------------------------------------------------------
@@ -392,6 +405,20 @@ def get_task_context(task_id: int, sg=None) -> Optional[Dict[str, Any]]:
     return _fetch_entity_context(sg, "Task", task_id)
 
 
+def get_entity_context(entity_type: str, entity_id: int, sg=None) -> Optional[Dict[str, Any]]:
+    """
+    Fetch entity metadata for a supported ShotGrid entity type.
+
+    Args:
+        entity_type: One of "Task", "Shot", or "Asset".
+        entity_id: Entity ID to query.
+    """
+    if not sg:
+        sg, user = sgtk_login()
+
+    return _fetch_entity_context(sg, entity_type, entity_id)
+
+
 def get_shot_context(shot_id: int, sg=None) -> Optional[Dict[str, Any]]:
     """
     Fetch ShotGrid Shot metadata for a specific Shot ID.
@@ -413,6 +440,40 @@ def get_asset_context(asset_id: int, sg=None) -> Optional[Dict[str, Any]]:
 
 
     return _fetch_entity_context(sg, "Asset", asset_id)
+
+
+def get_project_context(project_id: int, sg=None) -> Optional[Dict[str, Any]]:
+    """
+    Fetch ShotGrid Project metadata for a specific Project ID.
+    """
+    if not sg:
+        sg, user = sgtk_login()
+
+    _require_positive_int(project_id, "project_id")
+    row = sg.find_one("Project", [["id", "is", project_id]], _project_fields())
+    if not row:
+        return None
+    if "sg_status" in row:
+        row["sg_status"] = _status_name(row.get("sg_status")) or row.get("sg_status")
+    return row
+
+
+def list_active_projects(sg=None) -> List[Dict[str, Any]]:
+    """
+    Return active, non-template projects with basic metadata.
+    """
+    if not sg:
+        sg, user = sgtk_login()
+
+    filters = [
+        ["sg_status", "in", list(ACTIVE_PROJECT_STATUSES)],
+        ["is_template", "is", False],
+    ]
+    rows = sg.find("Project", filters, _project_fields()) or []
+    for row in rows:
+        if "sg_status" in row:
+            row["sg_status"] = _status_name(row.get("sg_status")) or row.get("sg_status")
+    return rows
 
 
 def parse_link(link: str, sg=None) -> Optional[Dict[str, Any]]:
