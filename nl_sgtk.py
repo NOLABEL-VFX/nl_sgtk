@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import os
 import webbrowser
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
@@ -67,7 +68,14 @@ ASSET_ENTITY_FIELDS: List[str] = [
 
 ACTIVE_PROJECT_STATUSES: Tuple[str, ...] = ("Active", "Pitch", "Inhouse", "AI")
 
-SHOTGRID_URL = "https://nolabel.shotgunstudio.com"
+SHOTGRID_ENV_VAR = "STUDIO_SHOTGUN_LINK"
+SHOTGRID_URL = os.environ.get(SHOTGRID_ENV_VAR)
+
+if not SHOTGRID_URL:
+    raise RuntimeError(
+        f"Please set the {SHOTGRID_ENV_VAR} environment variable for the ShotGrid link."
+    )
+
 DEFAULT_PRODUCT = "NL Hub"
 
 _DETAIL_RE = re.compile(r"/detail/(?P<type>[A-Za-z_]\w*)/(?P<id>\d+)(?:/|$)")
