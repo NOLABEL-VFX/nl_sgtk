@@ -23,6 +23,7 @@ PROJECT_FIELDS: List[str] = [
     "project.Project.code",
     "project.Project.sg_project_path",
     "project.Project.sg_master_fps",
+    "project.Project.sg_master_resolution",
 ]
 
 TASK_BASE_FIELDS: List[str] = [
@@ -160,6 +161,19 @@ def _merge_project_meta(target: Dict[str, Any]) -> Dict[str, Any]:
     if target.get("project.Project.sg_master_fps"):
         target["sg_master_fps"] = target["project.Project.sg_master_fps"]
 
+    res = target.get("project.Project.sg_master_resolution")
+    left = None
+    right = None
+
+    if res and isinstance(res, str):
+        match = re.search(r'^(\d+)\s*x\s*(\d+)$', res)
+        if match:
+            left = int(match.group(1))
+            right = int(match.group(2))
+
+    target['master_resolution_width'] = left
+    target['master_resolution_height'] = right
+
     return target
 
 
@@ -178,6 +192,19 @@ def _task_to_compact_dict(task_row: Dict[str, Any]) -> Dict[str, Any]:
     # project meta
     out["fps"] = task_row.get("project.Project.sg_master_fps")
     out["project_path"] = task_row.get("project.Project.sg_project_path")
+    res = task_row.get("project.Project.sg_master_resolution")
+    left = None
+    right = None
+
+    if res and isinstance(res, str):
+        match = re.search(r'^(\d+)\s*x\s*(\d+)$', res)
+        if match:
+            left = int(match.group(1))
+            right = int(match.group(2))
+
+    out['master_resolution_width'] = left
+    out['master_resolution_height'] = right
+    
 
     project = out.get("project") or {}
     if isinstance(project, dict):
@@ -257,6 +284,7 @@ def _project_fields() -> List[str]:
         "is_template",
         "sg_project_path",
         "sg_master_fps",
+        "sg_master_resolution",
         "image",
     ]
 
