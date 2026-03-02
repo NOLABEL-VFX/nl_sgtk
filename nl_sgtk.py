@@ -5,6 +5,8 @@ import webbrowser
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
+from nl_sgtk_version_check import notify_if_update_available
+
 import sgtk
 from shotgun_api3 import shotgun
 import re
@@ -14,6 +16,11 @@ log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
 __version__ = "0.2.0"
+
+try:
+    notify_if_update_available(__version__)
+except Exception as exc:
+    log.debug("Version update check failed: %s", exc)
 
 # --------------------------------------------------------------------------------------
 # Field definitions / constants
