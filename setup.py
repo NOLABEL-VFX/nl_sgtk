@@ -51,7 +51,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Nolabel",
     url="https://github.com/nolabel/nl_sgtk",
-    py_modules=["nl_sgtk"],
+    py_modules=["nl_sgtk", "nl_sgtk_version_check"],
     install_requires=read_requirements(ROOT / "requirements.txt"),
     python_requires=">=3.8",
     classifiers=[
