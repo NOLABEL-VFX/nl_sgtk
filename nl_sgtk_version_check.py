@@ -56,12 +56,14 @@ def notify_if_update_available(current_version: str) -> None:
     if not result["update_available"]:
         return
 
-    command = f'""{sys.executable}" -m {' '.join(UPDATE_COMMAND)}"'
+    command = [sys.executable, "-m"] + UPDATE_COMMAND
+    command = ' '.join(command)
     print(
         "[notice] There is an update to nl_sgtk module "
         f"{result['local_version']} >> {result['remote_version']}. "
         f"Run {command} to update."
     )
+    return True
 
 def get_update_command():
     command = [sys.executable, "-m"] + UPDATE_COMMAND
