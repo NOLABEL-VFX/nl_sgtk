@@ -16,7 +16,8 @@ VCS_NAME_OVERRIDES = {
 
 def _pep508_from_vcs(requirement: str) -> str:
     if requirement.startswith("git+"):
-        match = re.search(r"/([^/]+?)(?:\.git)?$", requirement)
+        vcs_url = requirement.split("@", 1)[0]
+        match = re.search(r"/([^/]+?)(?:\.git)?$", vcs_url)
         if not match:
             raise RuntimeError(f"Unable to derive package name from {requirement}")
         repo_name = match.group(1)
