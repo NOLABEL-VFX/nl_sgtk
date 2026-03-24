@@ -31,6 +31,7 @@ PROJECT_FIELDS: List[str] = [
     "project.Project.sg_project_path",
     "project.Project.sg_master_fps",
     "project.Project.sg_master_resolution",
+    "project.Project.sg_ocio_config_path",
 ]
 
 TASK_BASE_FIELDS: List[str] = [
@@ -64,6 +65,14 @@ SHOT_ENTITY_FIELDS: List[str] = [
     "sg_head_in",
     "sg_tail_out",
     "sg_scene",
+]
+
+SHOT_ENV_FIELDS: List[str] = [
+    "sg_lut_primary",
+    "sg_lut_secondary",
+    "sg_color_correction_primary",
+    "sg_color_correction_secondary",
+    "sg_camera_colorspace",
 ]
 
 ASSET_ENTITY_FIELDS: List[str] = [
@@ -199,6 +208,7 @@ def _task_to_compact_dict(task_row: Dict[str, Any]) -> Dict[str, Any]:
     # project meta
     out["fps"] = task_row.get("project.Project.sg_master_fps")
     out["project_path"] = task_row.get("project.Project.sg_project_path")
+    out["ocio_config_path"] = task_row.get("project.Project.sg_ocio_config_path")
     res = task_row.get("project.Project.sg_master_resolution")
     left = None
     right = None
@@ -234,6 +244,30 @@ def _task_to_compact_dict(task_row: Dict[str, Any]) -> Dict[str, Any]:
         # If task image is missing, fall back to shot image
         if not out.get("image"):
             out["image"] = task_row.get("entity.Shot.image") or out.get("image")
+
+        env = {
+            "SHOT_LUT_PRIMARY": "",
+            "SHOT_LUT_SECONDARY": "",
+            "SHOT_CC_PRIMARY": "",
+            "SHOT_CC_SECONDARY": "",
+            "SHOT_CAMERA_CS": "",
+        }
+        if out.get("ocio_config_path"):
+            entity = task_row.get("entity")
+            if entity and entity.get("type") == "Shot" and entity.get("id"):
+                env_entity = task_row.get("_shot_env") or {}
+                env["SHOT_LUT_PRIMARY"] = env_entity.get("sg_lut_primary") or ""
+                env["SHOT_LUT_SECONDARY"] = env_entity.get("sg_lut_secondary") or ""
+                env["SHOT_CC_PRIMARY"] = env_entity.get("sg_color_correction_primary") or ""
+                env["SHOT_CC_SECONDARY"] = env_entity.get("sg_color_correction_secondary") or ""
+                env["SHOT_CAMERA_CS"] = env_entity.get("sg_camera_colorspace") or ""
+
+                os.environ["SHOT_LUT_PRIMARY"] = env["SHOT_LUT_PRIMARY"]
+                os.environ["SHOT_LUT_SECONDARY"] = env["SHOT_LUT_SECONDARY"]
+                os.environ["SHOT_CC_PRIMARY"] = env["SHOT_CC_PRIMARY"]
+                os.environ["SHOT_CC_SECONDARY"] = env["SHOT_CC_SECONDARY"]
+                os.environ["SHOT_CAMERA_CS"] = env["SHOT_CAMERA_CS"]
+        out["env"] = env
     else:
         out.update(
             {
@@ -242,6 +276,13 @@ def _task_to_compact_dict(task_row: Dict[str, Any]) -> Dict[str, Any]:
                 "last_frame": None,
                 "sequence": None,
                 "scene": None,
+                "env": {
+                    "SHOT_LUT_PRIMARY": "",
+                    "SHOT_LUT_SECONDARY": "",
+                    "SHOT_CC_PRIMARY": "",
+                    "SHOT_CC_SECONDARY": "",
+                    "SHOT_CAMERA_CS": "",
+                },
             }
         )
 
@@ -435,7 +476,109 @@ def get_user_tasks(user: Dict[str, Any], sg=None) -> List[Dict[str, Any]]:
     fields = TASK_BASE_FIELDS + PROJECT_FIELDS + TASK_SHOT_FIELDS
 
     rows = sg.find("Task", filters, fields) or []
+    shot_ids = sorted(
+        {
+            row["entity"]["id"]
+            for row in rows
+            if isinstance(row.get("entity"), dict)
+            and row["entity"].get("type") == "Shot"
+            and row["entity"].get("id")
+        }
+    )
+    shot_env_map: Dict[int, Dict[str, Any]] = {}
+    if shot_ids:
+        shot_rows = sg.find("Shot", [["id", "in", shot_ids]], SHOT_ENV_FIELDS) or []
+        shot_env_map = {shot["id"]: shot for shot in shot_rows}
+
+    for row in rows:
+        entity = row.get("entity")
+        if isinstance(entity, dict) and entity.get("type") == "Shot":
+            row["_shot_env"] = shot_env_map.get(entity.get("id"), {})
+
     return [_task_to_compact_dict(r) for r in rows]
+
+
+def get_storages(sg=None) -> List[Dict[str, Any]]:
+    """
+    Return LocalStorage mappings used for cross-platform path normalization.
+    """
+    if not sg:
+        sg, user = sgtk_login()
+
+    return sg.find(
+        "LocalStorage",
+        [],
+        ["code", "windows_path", "linux_path", "mac_path"],
+    )
+
+
+def verify_path(path, storages, system=None):
+    """
+    Normalize a ShotGrid path to the requested operating-system storage root.
+
+    Use this helper when a path may originate from a different platform than
+    the current NL Hub session. The function compares known LocalStorage
+    prefixes and rewrites the prefix to the current platform while preserving
+    the trailing relative segments.
+
+    Args:
+        path: Raw path value from ShotGrid or endpoint payload.
+        storages: List of LocalStorage dictionaries containing platform roots.
+        system: Optional os.name override (for example ``"nt"`` or ``"posix"``).
+
+    Returns:
+        Normalized path that uses forward slashes and platform-correct storage
+        prefix when a mapping is available.
+
+    Raises:
+        ValueError: If ``path`` is not a string.
+        ValueError: If ``storages`` is not a list.
+
+    Side Effects:
+        - None.
+
+    Notes:
+        - ``os.name`` is used by default to determine the current platform.
+        - Storage mappings require both Windows and Linux paths to be defined,
+          mirroring legacy NL Hub behavior.
+    """
+    if type(path) not in [str]:
+        raise ValueError("Path is not a string or Path object, cannot be processed!")
+
+    if not isinstance(storages, list):
+        raise ValueError("Storages must be a list of dictionaries.")
+
+    platform_map = {
+        "nt": "windows",
+        "posix": "linux" if os.name != "darwin" else "mac",
+    }
+    if system:
+        current_platform = platform_map.get(system, "linux")
+    else:
+        current_platform = platform_map.get(os.name, "linux")
+
+    storage_map = {}
+    for storage in storages:
+        paths = {
+            "windows": storage.get("windows_path"),
+            "linux": storage.get("linux_path"),
+            "mac": storage.get("mac_path"),
+        }
+        if paths["windows"] and paths["linux"]:
+            for value in paths.values():
+                if value:
+                    storage_map[value.replace("\\", "/").lower()] = paths[current_platform]
+
+    normalized_path = path.replace("\\", "/").lower()
+    for old_prefix, new_prefix in storage_map.items():
+        if normalized_path.startswith(old_prefix):
+            output = os.path.normpath(new_prefix + path[len(old_prefix):])
+            output = output.replace("\\", "/")
+            return output
+
+    output = os.path.normpath(path)
+    output = output.replace("\\", "/")
+    return output
 
 
 def get_task_context(task_id: int, sg=None) -> Optional[Dict[str, Any]]:
