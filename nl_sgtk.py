@@ -310,10 +310,51 @@ def _fetch_entity_context(
         return None
 
     _merge_project_meta(row)
+    _hydrate_entity_env(sg, row, entity_type)
 
     if 'sg_status_list' in row.keys():
         row['sg_status_list'] = _status_name(row['sg_status_list'])
     return row
+
+
+def _empty_env_map() -> Dict[str, str]:
+    return {
+        "SHOT_LUT_PRIMARY": "",
+        "SHOT_LUT_SECONDARY": "",
+        "SHOT_CC_PRIMARY": "",
+        "SHOT_CC_SECONDARY": "",
+        "SHOT_CAMERA_CS": "",
+    }
+
+
+def _hydrate_entity_env(sg, row: Dict[str, Any], entity_type: str) -> None:
+    """
+    Populate row["env"] for parsed entity contexts and normalize ocio path.
+    """
+    row["env"] = _empty_env_map()
+
+    ocio_config_path = row.get("project.Project.sg_ocio_config_path")
+    if ocio_config_path:
+        storages = get_storages(sg=sg)
+        row["project.Project.sg_ocio_config_path"] = verify_path(ocio_config_path, storages)
+
+    shot_id: Optional[int] = None
+    if entity_type == "Task":
+        entity = row.get("entity")
+        if isinstance(entity, dict) and entity.get("type") == "Shot":
+            shot_id = entity.get("id")
+    elif entity_type == "Shot":
+        shot_id = row.get("id")
+
+    if not shot_id or not row.get("project.Project.sg_ocio_config_path"):
+        return
+
+    shot_row = sg.find_one("Shot", [["id", "is", shot_id]], SHOT_ENV_FIELDS) or {}
+    row["env"]["SHOT_LUT_PRIMARY"] = shot_row.get("sg_lut_primary") or ""
+    row["env"]["SHOT_LUT_SECONDARY"] = shot_row.get("sg_lut_secondary") or ""
+    row["env"]["SHOT_CC_PRIMARY"] = shot_row.get("sg_color_correction_primary") or ""
+    row["env"]["SHOT_CC_SECONDARY"] = shot_row.get("sg_color_correction_secondary") or ""
+    row["env"]["SHOT_CAMERA_CS"] = shot_row.get("sg_camera_colorspace") or ""
 
 
 def _project_fields() -> List[str]:
