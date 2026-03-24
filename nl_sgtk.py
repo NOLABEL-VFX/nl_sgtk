@@ -214,6 +214,13 @@ def _task_to_compact_dict(
     if ocio_config_path and storages:
         ocio_config_path = verify_path(ocio_config_path, storages)
     out["ocio_config_path"] = ocio_config_path
+    out["env"] = {
+        "SHOT_LUT_PRIMARY": "",
+        "SHOT_LUT_SECONDARY": "",
+        "SHOT_CC_PRIMARY": "",
+        "SHOT_CC_SECONDARY": "",
+        "SHOT_CAMERA_CS": "",
+    }
     res = task_row.get("project.Project.sg_master_resolution")
     left = None
     right = None
@@ -237,7 +244,7 @@ def _task_to_compact_dict(
 
     # entity context
     entity = out.get("entity")
-    is_shot = bool(entity) and entity.get("type") == "Shot"
+    is_shot = isinstance(entity, dict) and entity.get("type") == "Shot"
 
     if is_shot:
         out["assets"] = task_row.get("entity.Shot.assets") or []
@@ -250,13 +257,7 @@ def _task_to_compact_dict(
         if not out.get("image"):
             out["image"] = task_row.get("entity.Shot.image") or out.get("image")
 
-        env = {
-            "SHOT_LUT_PRIMARY": "",
-            "SHOT_LUT_SECONDARY": "",
-            "SHOT_CC_PRIMARY": "",
-            "SHOT_CC_SECONDARY": "",
-            "SHOT_CAMERA_CS": "",
-        }
+        env = out["env"]
         if out.get("ocio_config_path"):
             entity = task_row.get("entity")
             if entity and entity.get("type") == "Shot" and entity.get("id"):
@@ -266,8 +267,6 @@ def _task_to_compact_dict(
                 env["SHOT_CC_PRIMARY"] = env_entity.get("sg_color_correction_primary") or ""
                 env["SHOT_CC_SECONDARY"] = env_entity.get("sg_color_correction_secondary") or ""
                 env["SHOT_CAMERA_CS"] = env_entity.get("sg_camera_colorspace") or ""
-
-        out["env"] = env
     else:
         out.update(
             {
@@ -276,13 +275,6 @@ def _task_to_compact_dict(
                 "last_frame": None,
                 "sequence": None,
                 "scene": None,
-                "env": {
-                    "SHOT_LUT_PRIMARY": "",
-                    "SHOT_LUT_SECONDARY": "",
-                    "SHOT_CC_PRIMARY": "",
-                    "SHOT_CC_SECONDARY": "",
-                    "SHOT_CAMERA_CS": "",
-                },
             }
         )
 
