@@ -193,7 +193,9 @@ def _merge_project_meta(target: Dict[str, Any]) -> Dict[str, Any]:
     return target
 
 
-def _task_to_compact_dict(task_row: Dict[str, Any]) -> Dict[str, Any]:
+def _task_to_compact_dict(
+    task_row: Dict[str, Any], storages: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
     """
     Convert a Task row returned from sg.find into a consistent, compact dict
     your UI/tools can depend on.
@@ -208,7 +210,10 @@ def _task_to_compact_dict(task_row: Dict[str, Any]) -> Dict[str, Any]:
     # project meta
     out["fps"] = task_row.get("project.Project.sg_master_fps")
     out["project_path"] = task_row.get("project.Project.sg_project_path")
-    out["ocio_config_path"] = task_row.get("project.Project.sg_ocio_config_path")
+    ocio_config_path = task_row.get("project.Project.sg_ocio_config_path")
+    if ocio_config_path and storages:
+        ocio_config_path = verify_path(ocio_config_path, storages)
+    out["ocio_config_path"] = ocio_config_path
     res = task_row.get("project.Project.sg_master_resolution")
     left = None
     right = None
@@ -262,11 +267,6 @@ def _task_to_compact_dict(task_row: Dict[str, Any]) -> Dict[str, Any]:
                 env["SHOT_CC_SECONDARY"] = env_entity.get("sg_color_correction_secondary") or ""
                 env["SHOT_CAMERA_CS"] = env_entity.get("sg_camera_colorspace") or ""
 
-                os.environ["SHOT_LUT_PRIMARY"] = env["SHOT_LUT_PRIMARY"]
-                os.environ["SHOT_LUT_SECONDARY"] = env["SHOT_LUT_SECONDARY"]
-                os.environ["SHOT_CC_PRIMARY"] = env["SHOT_CC_PRIMARY"]
-                os.environ["SHOT_CC_SECONDARY"] = env["SHOT_CC_SECONDARY"]
-                os.environ["SHOT_CAMERA_CS"] = env["SHOT_CAMERA_CS"]
         out["env"] = env
     else:
         out.update(
@@ -476,6 +476,7 @@ def get_user_tasks(user: Dict[str, Any], sg=None) -> List[Dict[str, Any]]:
     fields = TASK_BASE_FIELDS + PROJECT_FIELDS + TASK_SHOT_FIELDS
 
     rows = sg.find("Task", filters, fields) or []
+    storages = get_storages(sg=sg)
     shot_ids = sorted(
         {
             row["entity"]["id"]
@@ -495,16 +496,25 @@ def get_user_tasks(user: Dict[str, Any], sg=None) -> List[Dict[str, Any]]:
         if isinstance(entity, dict) and entity.get("type") == "Shot":
             row["_shot_env"] = shot_env_map.get(entity.get("id"), {})
 
-    return [_task_to_compact_dict(r) for r in rows]
+    return [_task_to_compact_dict(r, storages=storages) for r in rows]
 
 
 def get_storages(sg=None) -> List[Dict[str, Any]]:
     """
     Return LocalStorage mappings used for cross-platform path normalization.
     """
-    if not sg:
-        sg, user = sgtk_login()
+    if sg:
+        return sg.find(
+            "LocalStorage",
+            [],
+            ["code", "windows_path", "linux_path", "mac_path"],
+        )
+    return _get_storages_cached()
 
+
+@lru_cache(maxsize=1)
+def _get_storages_cached() -> List[Dict[str, Any]]:
+    sg, user = sgtk_login()
     return sg.find(
         "LocalStorage",
         [],
