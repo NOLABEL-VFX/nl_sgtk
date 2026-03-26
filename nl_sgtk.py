@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 try:
     notify_if_update_available(__version__)
@@ -373,6 +373,19 @@ def _project_fields() -> List[str]:
 # Shotgun Toolkit helpers (public but technical)
 # --------------------------------------------------------------------------------------
 
+def get_user():
+    """
+    Return the user, login if needed.
+    The return value is 
+    {
+        "type" : "HumanUser"
+        "id" : 123,
+        "name" : "John Doe",
+        "_login": "johndoe"    
+    }    
+    """
+    sg, user = sgtk_login()
+    return user
 
 def ensure_sgtk_user(
     base_url: str = SHOTGRID_URL,
@@ -473,7 +486,13 @@ def sgtk_login(
             if not validate_connection(sg):
                 return None, None
             
-        user = sg.find_one("HumanUser", [['login', 'is', user.login]], ['name', 'id'])
+        user = sg.find_one("HumanUser", [['login', 'is', user.login]], ['name', 'id', 'login'])
+        if "@" in user['login']:
+            user['_login'] = user['login'].split("@")[0]
+        else:
+            user['_login'] = user['login']
+        
+        del user['login']
 
         return sg, user
 
