@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.3.2"
+__version__ = "0.4.1"
 
 try:
     notify_if_update_available(__version__)
@@ -427,6 +427,7 @@ def launch_interactive_login(
 
     # session_data is typically: (host, login, session_token, session_metadata)
     sgtk.authentication.session_cache.cache_session_data(*session_data)
+    sgtk.authentication.session_cache.set_current_host(host=session_data[0])
     sgtk.authentication.session_cache.set_current_user(host=session_data[0], login=session_data[1]) #Update user
 
 
