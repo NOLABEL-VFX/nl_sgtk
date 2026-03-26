@@ -459,44 +459,68 @@ def validate_connection(sg: shotgun.Shotgun) -> bool:
 # Public API
 # --------------------------------------------------------------------------------------
 
+def _sgtk_login_uncached(
+    base_url: str = SHOTGRID_URL,
+    product: str = DEFAULT_PRODUCT,
+) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
+    """
+    Run the full SGTK login flow and return validated (sg, user).
+    Raises on any unsuccessful authentication state.
+    """
+    user = ensure_sgtk_user(base_url=base_url, product=product)
+    if not user:
+        raise RuntimeError("User authentication failed: no default user after login.")
+
+    sg = build_shotgun_connection_from_user(user, base_url=base_url)
+
+    try:
+        if not validate_connection(sg):
+            raise RuntimeError("User test failed: connection works but query returned no results.")
+    except shotgun.AuthenticationFault as e:
+        log.error(f"{e} / Retrying login with session refresh...")
+        launch_interactive_login(base_url=base_url, product=product)
+        user = ensure_sgtk_user(base_url=base_url, product=product)
+        sg = build_shotgun_connection_from_user(user, base_url=base_url)
+        if not validate_connection(sg):
+            raise RuntimeError(
+                "User test failed after session refresh: connection works but query returned no results."
+            )
+
+    sg_user = sg.find_one("HumanUser", [["login", "is", user.login]], ["name", "id", "login"])
+    if not sg_user:
+        raise RuntimeError("Unable to resolve ShotGrid HumanUser for current login.")
+
+    login = sg_user.get("login")
+    if not login:
+        raise RuntimeError("Resolved ShotGrid HumanUser is missing a login value.")
+
+    sg_user["_login"] = login.split("@")[0] if "@" in login else login
+    del sg_user["login"]
+    return sg, sg_user
+
+
+@lru_cache(maxsize=1)
+def _sgtk_login_cached(
+    base_url: str = SHOTGRID_URL,
+    product: str = DEFAULT_PRODUCT,
+) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
+    return _sgtk_login_uncached(base_url=base_url, product=product)
+
+
 def sgtk_login(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
-) -> Tuple[Optional[shotgun.Shotgun], Optional[sgtk.authentication.ShotgunUser]]:
+) -> Tuple[Optional[shotgun.Shotgun], Optional[Dict[str, Any]]]:
     """
     Returns (sg, user) on success, otherwise (None, None).
+    Only successful results are cached.
     """
     try:
-        user = ensure_sgtk_user(base_url=base_url, product=product)
-        if not user:
-            log.error("User authentication failed: no default user after login.")
-            return None, None
-
-        sg = build_shotgun_connection_from_user(user, base_url=base_url)
-
-        try:
-            if not validate_connection(sg):
-                log.error("User test failed: connection works but query returned no results.")
-                return None, None
-        except shotgun.AuthenticationFault as e:
-            log.error(f"{e} / Retrying login with session refresh...")
-            launch_interactive_login(base_url=base_url, product=product)
-            user = ensure_sgtk_user(base_url=base_url, product=product)
-            sg = build_shotgun_connection_from_user(user, base_url=base_url)
-            if not validate_connection(sg):
-                return None, None
-            
-        user = sg.find_one("HumanUser", [['login', 'is', user.login]], ['name', 'id', 'login'])
-        if "@" in user['login']:
-            user['_login'] = user['login'].split("@")[0]
-        else:
-            user['_login'] = user['login']
-        
-        del user['login']
-
-        return sg, user
-
+        sg, user = _sgtk_login_cached(base_url=base_url, product=product)
+        # Return a copy so downstream code can mutate user metadata safely.
+        return sg, dict(user)
     except Exception as exc:
+        _sgtk_login_cached.cache_clear()
         # In production you may want narrower exceptions, but keep one catch here for the public API.
         log.exception("SGTK/ShotGrid auth failed: %s", exc)
         return None, None
