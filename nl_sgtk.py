@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 try:
     notify_if_update_available(__version__)
