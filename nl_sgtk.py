@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 try:
     notify_if_update_available(__version__)
@@ -86,6 +86,8 @@ ASSET_ENTITY_FIELDS: List[str] = [
 ACTIVE_PROJECT_STATUSES: Tuple[str, ...] = ("Active", "Pitch", "Inhouse", "AI")
 
 SHOTGRID_ENV_VAR = "STUDIO_SHOTGUN_LINK"
+SCRIPT_NAME_ENV_VAR = "STUDIO_SCRIPT_NAME"
+SCRIPT_KEY_ENV_VAR = "STUDIO_SCRIPT_KEY"
 SHOTGRID_URL = os.environ.get(SHOTGRID_ENV_VAR)
 
 if not SHOTGRID_URL:
@@ -233,7 +235,7 @@ def _task_to_compact_dict(
 
     out['master_resolution_width'] = left
     out['master_resolution_height'] = right
-    
+
 
     project = out.get("project") or {}
     if isinstance(project, dict):
@@ -369,6 +371,44 @@ def _project_fields() -> List[str]:
         "image",
     ]
 
+
+def _script_credentials() -> Tuple[Optional[str], Optional[str]]:
+    """Return script user credentials from environment variables if both are set."""
+    script_name = os.environ.get(SCRIPT_NAME_ENV_VAR)
+    script_key = os.environ.get(SCRIPT_KEY_ENV_VAR)
+
+    if script_name:
+        script_name = script_name.strip()
+    if script_key:
+        script_key = script_key.strip()
+
+    if script_name and script_key:
+        return script_name, script_key
+    return None, None
+
+
+def _script_login(base_url: str = SHOTGRID_URL) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
+    """Authenticate using script credentials and return a ShotGrid connection + synthetic user dict."""
+    script_name, script_key = _script_credentials()
+    if not script_name or not script_key:
+        raise RuntimeError(
+            f"Both {SCRIPT_NAME_ENV_VAR} and {SCRIPT_KEY_ENV_VAR} must be set for script authentication."
+        )
+
+    sg = shotgun.Shotgun(base_url, script_name=script_name, api_key=script_key)
+
+    if not validate_connection(sg):
+        raise RuntimeError("Script auth test failed: connection works but query returned no results.")
+
+    script_user = {
+        "type": "ApiUser",
+        "id": None,
+        "name": script_name,
+        "_login": script_name,
+    }
+    return sg, script_user
+
+
 # --------------------------------------------------------------------------------------
 # Shotgun Toolkit helpers (public but technical)
 # --------------------------------------------------------------------------------------
@@ -465,9 +505,20 @@ def _sgtk_login_uncached(
     product: str = DEFAULT_PRODUCT,
 ) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
     """
-    Run the full SGTK login flow and return validated (sg, user).
-    Raises on any unsuccessful authentication state.
+    Run ShotGrid login flow and return validated (sg, user).
+
+    If script credentials are available through STUDIO_SCRIPT_NAME and
+    STUDIO_SCRIPT_KEY, script authentication is attempted first.
+    Falls back to interactive SGTK user authentication when script auth is not
+    configured or fails.
     """
+    script_name, script_key = _script_credentials()
+    if script_name and script_key:
+        try:
+            return _script_login(base_url=base_url)
+        except Exception as exc:
+            log.warning("Script login failed, falling back to SGTK user login: %s", exc)
+
     user = ensure_sgtk_user(base_url=base_url, product=product)
     if not user:
         raise RuntimeError("User authentication failed: no default user after login.")
