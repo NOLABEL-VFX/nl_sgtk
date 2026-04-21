@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NL Nodes Artist Guide</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <button class="hero-backdrop image-button" data-lightbox="assets/screenshots/comfy-topbar.png" aria-label="Open screenshot: ComfyUI with NL top bar">
+      <img src="assets/screenshots/comfy-topbar.png" alt="ComfyUI canvas showing the NL Workflow button, context chips, and NL Tools menu in the top bar.">
+    </button>
+    <div class="site-header__copy">
+      <p class="eyebrow">NOLABEL ComfyUI tools</p>
+      <h1><span>NL Nodes</span><span>Artist Guide</span></h1>
+      <p class="lede">A practical guide to the NL workflow panel, artist tools, IO nodes, color previews, editing canvas, templates, subgraphs, model localization, and cost tracking.</p>
+      <div class="hero-actions">
+        <a class="button" href="#quick-start">Start With The Workflow</a>
+        <a class="button button--ghost" href="#node-reference">Browse Nodes</a>
+      </div>
+    </div>
+    <p class="hero-caption">NL Nodes live in the ComfyUI top bar and inside the NOLABEL node categories.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" aria-label="Guide navigation">
+      <label class="search-label" for="guide-search">Search guide</label>
+      <input id="guide-search" class="search-input" type="search" placeholder="Search nodes, panels, tools">
+      <nav class="toc">
+        <a href="#quick-start">Quick Start</a>
+        <a href="#workflow-context">Workflow Context</a>
+        <a href="#read-preview-write">Read, Preview, Write</a>
+        <a href="#color-compositing">Color And Comp</a>
+        <a href="#editing">Editing</a>
+        <a href="#tools">Top-Bar Tools</a>
+        <a href="#node-reference">Node Reference</a>
+        <a href="#modals">Modals And Dialogs</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+      </nav>
+    </aside>
+
+    <main id="main" class="content">
+      <section id="quick-start" class="guide-section searchable" data-search="quick start workflow apply context read preview write templates subgraphs">
+        <div class="section-kicker">Artist path</div>
+        <h2>Quick Start</h2>
+        <div class="step-grid">
+          <article class="step-card">
+            <span class="step-number">1</span>
+            <h3>Set shot context</h3>
+            <p>Open <strong>NL Workflow</strong>, fill the project, shot or asset, resolution, frame range, FPS, and project path, then use <strong>Apply & Close</strong>. This context feeds helper nodes and output naming.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-number">2</span>
+            <h3>Read the plate or reference</h3>
+            <p>Use <strong>NL Read</strong> for stills, sequences, videos, masks, or uploaded inputs. Keep color inputs in the intended source colorspace, then preview through the selected workflow view.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-number">3</span>
+            <h3>Preview and edit</h3>
+            <p>Use <strong>NL Preview</strong> for managed viewing and <strong>NL Edit</strong> when a quick paint or mask touch-up is faster than leaving ComfyUI.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-number">4</span>
+            <h3>Write the result</h3>
+            <p>Use <strong>NL Write</strong> for versioned EXR output, optional PNG previews, movies, and comparison renders. The workflow context keeps paths and names consistent.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow-context" class="guide-section searchable" data-search="nl workflow context project shot asset task resolution fps frame range ocio project path history">
+        <div class="section-kicker">Context first</div>
+        <h2>Workflow Context</h2>
+        <div class="media-pair">
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/workflow-panel.png" aria-label="Open screenshot: NL Workflow panel">
+              <img src="assets/screenshots/workflow-panel.png" alt="NL Workflow panel with project, episode, scene, shot, task, resolution, frame range, project path, OCIO, and recent context controls.">
+            </button>
+            <figcaption>The NL Workflow panel stores the current shot context for this graph.</figcaption>
+          </figure>
+          <div>
+            <p>Artists should start here. The panel is not a graph node; it is workflow-level state that NL helper nodes and IO nodes read when they execute.</p>
+            <ul class="plain-list">
+              <li><strong>Project, scene, shot/asset, task:</strong> production identity used by helpers, ledger rows, and output metadata.</li>
+              <li><strong>Width, height, FPS, start, end:</strong> the render format and timeline range used by context helper nodes.</li>
+              <li><strong>Project path:</strong> the root used by NL Write. Point it at the shot Comfy folder when possible.</li>
+              <li><strong>Color Management:</strong> project OCIO config, display, view, and input policy for managed IO and previews.</li>
+              <li><strong>Recent contexts:</strong> quick access to recently used shots or assets.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="read-preview-write" class="guide-section searchable" data-search="nl read preview write exr png mov mp4 sequence video mask comparison image info">
+        <div class="section-kicker">Daily graph work</div>
+        <h2>Read, Preview, Write</h2>
+        <div class="media-pair">
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/node-reference-canvas.png" aria-label="Open screenshot: NL node examples">
+              <img src="assets/screenshots/node-reference-canvas.png" alt="ComfyUI canvas with NL Read, NL Preview, NL Write, NL Edit, NL Merge, NL Shuffle, and NL Constant Color nodes.">
+            </button>
+            <figcaption>Core NL nodes shown in a clean ComfyUI canvas for reference.</figcaption>
+          </figure>
+          <div>
+            <p>The core loop is usually <strong>NL Read</strong> into your graph, <strong>NL Preview</strong> when you need a managed viewer, and <strong>NL Write</strong> at the end.</p>
+            <ul class="plain-list">
+              <li><strong>NL Read</strong> accepts stills, sequences, videos, masks, and uploaded inputs. It can sample, trim, reverse, resize, and preview without changing the emitted tensor unless the controls say so.</li>
+              <li><strong>NL Preview</strong> is a display/output node. It is useful for color, mask, RGBA, A/B comparison, and comparison reveal views.</li>
+              <li><strong>NL Write</strong> is EXR-first by default, with optional PNG previews, MP4/MOV sequence outputs, comparison frames, and metadata sidecars.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="color-compositing" class="guide-section searchable" data-search="color ocio acescg preview transform merge shuffle linear log model space deprecated">
+        <div class="section-kicker">Color and comp</div>
+        <h2>Color And Compositing</h2>
+        <p>NL color tools are meant to keep artist previews readable while preserving predictable working-space data through the graph.</p>
+        <div class="callout-grid">
+          <article class="callout">
+            <h3>Managed previews</h3>
+            <p>Use <strong>preview_colorspace</strong> to choose how an image is displayed. A preview transform is for viewing; it should not be treated as the final tensor unless a transform node says so.</p>
+          </article>
+          <article class="callout">
+            <h3>Explicit transforms</h3>
+            <p>Use <strong>NL OCIO Convert</strong>, <strong>NL Linear To Log</strong>, and <strong>NL Log To Linear</strong> when the graph really needs converted image data.</p>
+          </article>
+          <article class="callout">
+            <h3>Nuke-style channel work</h3>
+            <p><strong>NL Merge</strong> and <strong>NL Shuffle</strong> provide familiar A/B image operations, masks, mattes, channel routing, and image-info metadata pass-through.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="editing" class="guide-section searchable" data-search="nl edit canvas paint mask rgb brush eraser undo redo export nl read">
+        <div class="section-kicker">Paint and mask</div>
+        <h2>Editing</h2>
+        <div class="media-pair">
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/edit-modal.png" aria-label="Open screenshot: NL Edit canvas modal">
+              <img src="assets/screenshots/edit-modal.png" alt="NL Edit modal with mask and RGB layers, combined/RGB/mask views, brush and erase tools, brush size, undo, redo, clear, cancel, and save.">
+            </button>
+            <figcaption>NL Edit is a focused paint and mask modal for quick fixes inside ComfyUI.</figcaption>
+          </figure>
+          <div>
+            <p><strong>NL Edit</strong> is for quick comp notes, rough masks, fixes, and hand-painted guide data. Fetch upstream input first when possible, then open the editor.</p>
+            <ul class="plain-list">
+              <li><strong>Layer:</strong> choose whether strokes affect the RGB layer or mask layer.</li>
+              <li><strong>View:</strong> switch between combined, RGB, and mask previews.</li>
+              <li><strong>Tool:</strong> brush adds strokes; erase removes them from the selected layer.</li>
+              <li><strong>Export to NL Read:</strong> turns the saved edit output into a new readable source node.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="tools" class="guide-section searchable" data-search="nl tools model manager templates subgraphs cost ledger configuration dependencies username">
+        <div class="section-kicker">Top-bar panels</div>
+        <h2>Top-Bar Tools</h2>
+        <div class="image-grid">
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/nl-tools-menu.png" aria-label="Open screenshot: NL Tools menu">
+              <img src="assets/screenshots/nl-tools-menu.png" alt="NL Tools menu listing NL Model Manager, NL Templates, NL Subgraphs, NL Cost Ledger, Copy Workflow, and Configuration.">
+            </button>
+            <figcaption>NL Tools groups the main NL panels and utility actions.</figcaption>
+          </figure>
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/configuration-panel.png" aria-label="Open screenshot: Configuration panel">
+              <img src="assets/screenshots/configuration-panel.png" alt="NL Configuration panel showing username, UI text size, automatic ShotGrid login status, and dependency status.">
+            </button>
+            <figcaption>Configuration stores the username and shared UI/dependency settings.</figcaption>
+          </figure>
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/model-manager-panel.png" aria-label="Open screenshot: NL Model Manager">
+              <img src="assets/screenshots/model-manager-panel.png" alt="NL Model Manager panel showing workflow model scan, local and network availability, cache size, auto-prune, and localization actions.">
+            </button>
+            <figcaption>Model Manager compares network models against local cache.</figcaption>
+          </figure>
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/templates-panel.png" aria-label="Open screenshot: NL Templates">
+              <img src="assets/screenshots/templates-panel.png" alt="NL Templates panel with tag filters, template cards, poster images, load buttons, versions, and sorting controls.">
+            </button>
+            <figcaption>Templates is the shared workflow library for starting points and reusable setups.</figcaption>
+          </figure>
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/subgraphs-panel.png" aria-label="Open screenshot: NL Subgraphs">
+              <img src="assets/screenshots/subgraphs-panel.png" alt="NL Subgraphs panel with filters, blueprint library, inspector, inputs, outputs, controls, and add-to-canvas action.">
+            </button>
+            <figcaption>Subgraphs inserts reusable blueprint blocks into the active graph.</figcaption>
+          </figure>
+          <figure>
+            <button class="image-button" data-lightbox="assets/screenshots/cost-ledger-panel.png" aria-label="Open screenshot: NL Cost Ledger">
+              <img src="assets/screenshots/cost-ledger-panel.png" alt="NL Cost Ledger panel showing source toggle, date filters, project filters, cost summary, and ledger rows.">
+            </button>
+            <figcaption>Cost Ledger tracks API usage by project, shot or asset, user, and model.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="node-reference" class="guide-section searchable" data-search="node reference nl read write preview workflow color utilities wanvideo debug deprecated">
+        <div class="section-kicker">Reference</div>
+        <h2>Node Reference</h2>
+        <p class="section-note">The cards below cover the registered NL Nodes in this repository. Input and output names were checked against the loaded ComfyUI object info during this documentation pass.</p>
+
+        <div class="node-group">
+          <h3>NOLABEL / IO</h3>
+          <div class="node-grid">
+            <article class="node-card searchable" data-search="nl read image sequence video mask exr ocio preview source input colorspace">
+              <h4>NL Read</h4>
+              <p class="node-category">NOLABEL/IO</p>
+              <p>Reads stills, image sequences, videos, masks, and uploaded inputs. Use it when media enters the graph.</p>
+              <dl>
+                <dt>Artist controls</dt>
+                <dd>source, frame sampling, range, mask mode, reverse, resize, input colorspace, preview colorspace.</dd>
+                <dt>Outputs</dt>
+                <dd>image, mask, inverted_mask, frame_count, resolved_path, image_info_json.</dd>
+              </dl>
+            </article>
+            <article class="node-card searchable" data-search="nl write output exr png mp4 mov sequence version comparison image info">
+              <h4>NL Write</h4>
+              <p class="node-category">NOLABEL/IO</p>
+              <p>Writes final images or sequences using workflow context. Use it at the end of an artist graph.</p>
+              <dl>
+                <dt>Artist controls</dt>
+                <dd>single or sequence mode, base name, output colorspace, preview mode, save mode, frame range, MP4/MOV options.</dd>
+                <dt>Inputs</dt>
+                <dd>images, mask, comparison_images, image_info_json.</dd>
+              </dl>
+            </article>
+            <article class="node-card searchable" data-search="nl image info debug metadata color json source path detected working raw data">
+              <h4>NL Image Info Debug</h4>
+              <p class="node-category">NOLABEL/IO</p>
+              <p>Pretty-prints image metadata from NL Read. Use it when color interpretation or source metadata looks wrong.</p>
+              <dl>
+                <dt>Input</dt>
+                <dd>image_info_json.</dd>
+                <dt>Outputs</dt>
+                <dd>source_path, detected_color_space, working_color_space, is_data, pretty_json.</dd>
+              </dl>
+            </article>
+          </div>
+        </div>
+
+        <div class="node-group">
+          <h3>NOLABEL / Workflow</h3>
+          <div class="node-grid">
+            <article class="node-card searchable" data-search="nl resolution width height workflow context">
+              <h4>NL Resolution</h4>
+              <p class="node-category">NOLABEL/Workflow</p>
+              <p>Outputs the width and height stored in NL Workflow. Use it to drive generators, resizes, or utility nodes.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl fps workflow frames per second int">
+              <h4>NL FPS</h4>
+              <p class="node-category">NOLABEL/Workflow</p>
+              <p>Outputs workflow FPS as float and integer values. Use it for sequence, video, or timing nodes.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl frame range start end count workflow timeline">
+              <h4>NL Frame Range</h4>
+              <p class="node-category">NOLABEL/Workflow</p>
+              <p>Outputs start frame, end frame, and frame count from the active workflow context.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl project path workflow output root write">
+              <h4>NL Project Path</h4>
+              <p class="node-category">NOLABEL/Workflow</p>
+              <p>Outputs the project path saved in the workflow panel. Use it when custom nodes need the shot folder.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl workflow color context ocio display view working input policy status">
+              <h4>NL Workflow Color Context</h4>
+              <p class="node-category">NOLABEL/Workflow</p>
+              <p>Outputs the resolved OCIO config, working space, display, view, input policy, and status JSON.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl context debug workflow json print console">
+              <h4>NL Context Debug</h4>
+              <p class="node-category">NOLABEL/Workflow</p>
+              <p>Outputs the cached workflow context JSON. Use it for diagnosis, not normal artist graphs.</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="node-group">
+          <h3>NOLABEL / Color</h3>
+          <div class="node-grid">
+            <article class="node-card searchable" data-search="nl preview color mask rgba comparison reveal viewer display ocio">
+              <h4>NL Preview</h4>
+              <p class="node-category">NOLABEL/Color</p>
+              <p>Managed viewer/output node for images, masks, RGBA, comparisons, and comparison reveal.</p>
+              <dl>
+                <dt>Inputs</dt>
+                <dd>image, mask, comparison_images, image_info_json.</dd>
+                <dt>Outputs</dt>
+                <dd>image, mask, image_info_json.</dd>
+              </dl>
+            </article>
+            <article class="node-card searchable" data-search="nl ocio convert colorspace source target acescg metadata">
+              <h4>NL OCIO Convert</h4>
+              <p class="node-category">NOLABEL/Color</p>
+              <p>Converts image tensors between explicit OCIO colorspaces and updates image_info_json.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl linear to log ocio compositing log transform">
+              <h4>NL Linear To Log</h4>
+              <p class="node-category">NOLABEL/Color</p>
+              <p>Converts scene-linear image data into the configured compositing log role.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl log to linear ocio transform scene linear">
+              <h4>NL Log To Linear</h4>
+              <p class="node-category">NOLABEL/Color</p>
+              <p>Converts compositing log data back into the configured scene-linear role.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl merge nuke over plus screen mask matte mix bbox union intersection">
+              <h4>NL Merge</h4>
+              <p class="node-category">NOLABEL/Color</p>
+              <p>Nuke-inspired A/B image merge with optional A/B mattes, effect mask, canvas behavior, invert mask, and mix.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl shuffle channels red green blue alpha mask matte constants black white">
+              <h4>NL Shuffle</h4>
+              <p class="node-category">NOLABEL/Color</p>
+              <p>Routes RGB and alpha/mask channels from A, B, black, or white into a new image and mask.</p>
+            </article>
+            <article class="node-card node-card--warning searchable" data-search="deprecated nl to model space model color space old workflows">
+              <h4>Deprecated: NL To Model Space</h4>
+              <p class="node-category">NOLABEL/Color/Deprecated</p>
+              <p>Legacy model-space conversion node kept for old workflows. Prefer explicit OCIO/color nodes in new setups.</p>
+            </article>
+            <article class="node-card node-card--warning searchable" data-search="deprecated nl from model space model output old workflows">
+              <h4>Deprecated: NL From Model Space</h4>
+              <p class="node-category">NOLABEL/Color/Deprecated</p>
+              <p>Legacy conversion from model output space. Keep it only when maintaining older graphs that already use it.</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="node-group">
+          <h3>NOLABEL / Utilities</h3>
+          <div class="node-grid">
+            <article class="node-card searchable" data-search="nl constant color solid rgba mask workflow resolution custom size">
+              <h4>NL Constant Color</h4>
+              <p class="node-category">NOLABEL/Utilities</p>
+              <p>Creates a solid image and mask at workflow or custom resolution. Useful for mattes, slates, and test inputs.</p>
+            </article>
+            <article class="node-card searchable" data-search="nl edit paint mask rgb canvas brush eraser export">
+              <h4>NL Edit</h4>
+              <p class="node-category">NOLABEL/Utilities</p>
+              <p>Built-in paint and mask editor node. Fetch upstream inputs, draw RGB or mask edits, save, then reuse or export.</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="node-group">
+          <h3>WanVideoWrapper</h3>
+          <div class="node-grid">
+            <article class="node-card searchable" data-search="wanvideo image to video encode multi reference temporal mask tiled vae control embeds">
+              <h4>NL WanVideo ImageToVideo Encode v2 (multi-ref)</h4>
+              <p class="node-category">WanVideoWrapper</p>
+              <p>Reference-image encoder utility for WanVideo workflows, including multi-reference frame placement, temporal masks, control embeds, and tiled VAE options.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="modals" class="guide-section searchable" data-search="modals dialogs template details create poster stack ledger detail confirmation alert">
+        <div class="section-kicker">Popups</div>
+        <h2>Modals And Dialogs</h2>
+        <div class="callout-grid">
+          <article class="callout">
+            <h3>Template detail and create modals</h3>
+            <p>Use detail modals to inspect versions, load a template, update metadata, update from graph, upload poster images, and manage stack confirmations.</p>
+          </article>
+          <article class="callout">
+            <h3>Subgraph publish and description dialogs</h3>
+            <p>Publishing and description edits are intentional actions. Check the selected local or shared variant before saving changes.</p>
+          </article>
+          <article class="callout">
+            <h3>Ledger row detail modal</h3>
+            <p>Click a ledger row to inspect prompt id, model/provider, credits, USD, wallet state, captured context, and raw JSON.</p>
+          </article>
+          <article class="callout">
+            <h3>Shared confirmations</h3>
+            <p>Destructive or shared-library actions use confirm dialogs. Read the target path and item name before confirming.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="troubleshooting" class="guide-section searchable" data-search="troubleshooting missing models paths colorspace templates subgraphs ledger dependencies install username">
+        <div class="section-kicker">When something feels wrong</div>
+        <h2>Troubleshooting</h2>
+        <div class="trouble-list">
+          <article>
+            <h3>Models show as missing locally</h3>
+            <p>Open <strong>NL Model Manager</strong>, scan the workflow, and localize the missing model from the network side. Do not delete or upload unless you mean to change shared/local storage.</p>
+          </article>
+          <article>
+            <h3>Writes go to an unexpected folder</h3>
+            <p>Check <strong>Project Path</strong> in NL Workflow and the <strong>name</strong> field on NL Write. NL Write uses workflow context for versioned output paths.</p>
+          </article>
+          <article>
+            <h3>Preview color looks wrong</h3>
+            <p>Check NL Workflow color management, NL Read <strong>input_colorspace</strong>, and Preview <strong>preview_colorspace</strong>. Use NL Image Info Debug when metadata needs inspection.</p>
+          </article>
+          <article>
+            <h3>Templates or subgraphs are empty</h3>
+            <p>Check shared paths in <strong>extra_model_paths.yaml</strong>. Templates require shared template roots; subgraphs use the first available shared subgraph key.</p>
+          </article>
+          <article>
+            <h3>Username warnings appear</h3>
+            <p>Open <strong>NL Tools > Configuration</strong>. Templates and Ledger need a valid username for authorship and cost tracking.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="guide-section searchable" data-search="installation video setup extra model paths restart">
+        <div class="section-kicker">Setup reference</div>
+        <h2>Installation Video</h2>
+        <p>The existing installation video remains available here for local setup context.</p>
+        <video class="install-video" controls preload="metadata">
+          <source src="../../media/nlnodes_installation.mp4" type="video/mp4">
+          Your browser does not support the video element.
+        </video>
+      </section>
+    </main>
+  </div>
+
+  <div class="lightbox" id="lightbox" aria-hidden="true" role="dialog" aria-label="Screenshot preview">
+    <button class="lightbox__close" type="button" aria-label="Close screenshot preview">Close</button>
+    <img class="lightbox__image" alt="">
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
