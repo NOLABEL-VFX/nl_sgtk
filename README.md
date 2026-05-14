@@ -6,7 +6,7 @@ and project metadata.
 
 ## Installation
 
-Install from Git (the `requirements.txt` is used automatically by `setup.py`):
+Install from Git:
 
 ```bash
 pip install git+https://github.com/NOLABEL-VFX/nl_sgtk.git

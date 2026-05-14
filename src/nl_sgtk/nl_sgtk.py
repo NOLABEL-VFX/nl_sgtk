@@ -5,7 +5,7 @@ import webbrowser
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
-from nl_sgtk_version_check import notify_if_update_available
+from .nl_sgtk_version_check import notify_if_update_available
 
 import sgtk
 from shotgun_api3 import shotgun
@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 
 try:
     notify_if_update_available(__version__)
