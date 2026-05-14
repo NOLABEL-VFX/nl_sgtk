@@ -6,7 +6,7 @@ import sys
 import urllib3
 
 
-RAW_URL = "https://raw.githubusercontent.com/NOLABEL-VFX/nl_sgtk/main/nl_sgtk.py"
+RAW_URL = "https://raw.githubusercontent.com/NOLABEL-VFX/nl_sgtk/main/src/nl_sgtk/nl_sgtk.py"
 UPDATE_COMMAND = ["pip", "install", "--force-reinstall", "git+https://github.com/NOLABEL-VFX/nl_sgtk"]
 
 http = urllib3.PoolManager()
