@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.4.3"
+__version__ = "0.5.0"
 
 try:
     notify_if_update_available(__version__)
@@ -820,3 +820,6 @@ def parse_link(link: str, sg=None) -> Optional[Dict[str, Any]]:
         )
 
     return _fetch_entity_context(sg, entity_type, entity_id)
+
+
+from .publisher import ShotgunPublish  # noqa: E402

@@ -1,0 +1,111 @@
+# Changelog
+
+## 0.5.0
+
+### Added
+
+- Added `ShotgunPublish` as a public publishing API for creating ShotGrid `Version` records and related `PublishedFile` records.
+- Added support for publishing files into movie, frame, geometry, and script path fields.
+- Added JSON import/export helpers for publish payloads.
+- Added validation controls for trusted or already-verified publish payloads.
+- Added per-publish UUID tracking through the ShotGrid `sg__publish_uuid` field.
+- Added local publish state registration in `~/.nolabel/.data/context_logger.db` for NL Hub workflows.
+- Added public API documentation for the new publishing workflow.
+
+### Changed
+
+- Updated the README to mention ShotGrid publishing support and outline planned publishing-related improvements.
+
+### Compatibility
+
+- This is a backward-compatible minor release. Existing APIs remain available.
+
+## Reconstructed History
+
+These entries were reconstructed from git commits, version declarations, and tags. Tags are present for `0.2.0`, `0.2.1`, and `0.3.2`; the other historical version entries are based on version bumps found in the repository history.
+
+## 0.4.3
+
+### Changed
+
+- Moved the package implementation into the `src/nl_sgtk` layout.
+- Added a root-level compatibility shim so older consumers that import or inspect `nl_sgtk.py` can still resolve the package and version.
+- Switched package metadata to the `pyproject.toml` project version.
+
+### Compatibility
+
+- Existing imports remain supported through the compatibility shim.
+
+## 0.4.2
+
+### Added
+
+- Added `API.md` as a public API reference for the main `nl_sgtk` functions.
+- Added repository maintenance instructions for keeping API documentation in sync with public API changes.
+
+### Changed
+
+- Prioritized ShotGrid script-user authentication when `STUDIO_SCRIPT_NAME` and `STUDIO_SCRIPT_KEY` are configured.
+
+## 0.4.1
+
+### Changed
+
+- Cached only successful `sgtk_login()` results so failed login attempts are not reused.
+- Set the current ShotGrid host during interactive login.
+
+## 0.3.2
+
+### Added
+
+- Added a helper for resolving the current ShotGrid user.
+
+### Changed
+
+- Reverted an earlier login-cache change before it was reintroduced in `0.4.1`.
+
+## 0.3.1
+
+### Added
+
+- Added storage path normalization helpers.
+- Added ShotGrid local storage lookup support.
+- Added richer task and entity context data for Shot, Asset, and Project workflows.
+
+### Changed
+
+- Improved task environment payloads so expected keys are present consistently.
+- Mapped OCIO paths through configured storage roots.
+- Hydrated environment data in parsed entity contexts.
+
+## 0.2.3
+
+### Changed
+
+- Pinned the `tk-core` dependency to a specific version for more predictable installs.
+
+## 0.2.2
+
+### Fixed
+
+- Fixed string formatting in the version update checker for broader Python compatibility.
+
+## 0.2.1
+
+### Added
+
+- Added an import-time update check that compares the local `nl_sgtk` version with the remote version.
+
+## 0.2.0
+
+### Changed
+
+- Bumped the module version to `0.2.0`.
+
+## 0.1.0
+
+### Added
+
+- Added initial package metadata and setup configuration.
+- Added the first `nl_sgtk` module implementation.
+- Added initial README documentation.

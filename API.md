@@ -39,6 +39,36 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 - `verify_path(path, storages, system=None)`
   - Normalizes storage paths across platforms.
 
+## Publishing APIs
+
+- `ShotgunPublish(logger=None, script_user=None, script_key=None, override_user=None, sg=None, user=None, validate_paths=True, trusted=False)`
+  - Creates ShotGrid `Version` records and related `PublishedFile` records.
+  - Creates a unique publish UUID for each class instance and attaches it to the `sg__publish_uuid` Version field.
+  - Supports script-user, injected ShotGrid connection, or normal `sgtk_login()` authentication.
+  - `validate_paths=False` skips local path existence checks for already-verified payloads.
+  - `trusted=True` allows imported source-of-truth payloads to skip publish-time validation unless explicitly requested.
+- `ShotgunPublish.set_context(context=None, validate=None)`
+  - Sets project/entity/task context from a context dictionary, serialized `Project:1;Shot:2;Task:3` string, or supported ShotGrid URL.
+- `ShotgunPublish.add_file(file_path, force_version_field=None, verify=None)`
+  - Adds a publish file to one of `sg_path_to_frames`, `sg_path_to_movie`, `sg_path_to_geometry`, or `sg_path_to_script`.
+  - Pass `force_version_field` to override extension-based classification.
+  - Pass `verify=False` to skip path existence checks for verified source data.
+- `ShotgunPublish.set_preview_file(file_path, verify=None)`
+  - Sets the upload preview file. Pass `verify=False` to skip path existence checks.
+- `ShotgunPublish.import_from_json(file_path, validate=True, trusted=False)`
+  - Imports a publish payload from JSON.
+  - Use `trusted=True` or `validate=False` when the JSON comes from a verified source of truth.
+- `ShotgunPublish.import_data(data, validate=True, trusted=False)`
+  - Imports a publish payload from an in-memory dictionary.
+- `ShotgunPublish.export_to_json(file_path, validate=True)`
+  - Exports the current publish payload to JSON.
+  - Registers the exported publish payload in `~/.nolabel/.data/context_logger.db`.
+- `ShotgunPublish.retrieve_version_info(validate=True)`
+  - Returns the ShotGrid `Version` payload, converting file lists to semicolon-separated ShotGrid path fields.
+- `ShotgunPublish.publish(validate=True, upload_preview=True)`
+  - Creates the `Version`, uploads preview media when available, and creates related `PublishedFile` records.
+  - Registers publish state updates in `~/.nolabel/.data/context_logger.db` for NL Hub.
+
 ## Environment Variables
 
 - `STUDIO_SHOTGUN_LINK` (required): ShotGrid host URL.

@@ -42,3 +42,15 @@ The `nl_sgtk` module provides:
 - Task metadata retrieval (`get_user_tasks`, `get_task_context`).
 - Entity context fetching for shots, assets, and projects.
 - ShotGrid URL parsing with `parse_link`.
+- ShotGrid publishing through `ShotgunPublish`.
+
+## Future Additions
+
+- Shared schema validation for Version, PublishedFile, Task, Shot, Asset, and Project payloads.
+- A typed context object that can round-trip between ShotGrid URLs, dictionaries, JSON, and environment variables.
+- First-class publish templates for common DCC outputs such as scripts, cameras, flipbooks, geometry, renders, and plates.
+- Dependency graph helpers for resolving upstream/downstream publishes and detecting stale dependencies.
+- Batch publish transactions with dry-run output, rollback guidance, and clearer per-file error reporting.
+- Centralized path-sequence utilities so frame patterns, movie paths, storage remaps, and source-path comparisons behave consistently.
+- Optional upload helpers for thumbnails, filmstrips, notes, playlists, and review-session metadata.
+- Test fixtures and fake ShotGrid clients for validating publisher behavior without a live ShotGrid connection.
