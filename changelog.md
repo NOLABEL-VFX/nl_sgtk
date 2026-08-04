@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.1
+
+### Fixed
+
+- Made the provider tests self-contained on clean CI runners by supplying a
+  non-routable ShotGrid URL during test collection.
+
+### Compatibility
+
+- This patch changes only test setup; runtime behavior and public APIs are
+  unchanged.
+
 ## 0.6.0
 
 ### Added
