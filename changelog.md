@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2
+
+### Fixed
+
+- Updated the GitHub Actions checkout and Python setup actions to their
+  Node.js 24-compatible major versions, removing Node.js 20 deprecation
+  warnings from the test matrix.
+
+### Compatibility
+
+- This patch changes only CI configuration; runtime behavior and public APIs
+  are unchanged.
+
 ## 0.6.1
 
 ### Fixed
