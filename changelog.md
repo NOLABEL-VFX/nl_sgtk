@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- Added the `NlSgtkProvider` entry point for tracker-neutral `nl_core`
+  integration.
+- Added SGTK-first Task context and output-aware Version/PublishedFile
+  discovery, including partial Version collision protection.
+- Added idempotent registration preflight by publish UUID, Task, path, and
+  Version code.
+- Added recovery that reuses a Version and repairs missing PublishedFiles.
+- Added Windows and Linux CI coverage for Python 3.9 through 3.13.
+
+### Compatibility
+
+- Authentication and ShotGrid access remain inside `nl_sgtk`.
+- Existing public helpers remain backward compatible.
+
 ## 0.5.0
 
 ### Added

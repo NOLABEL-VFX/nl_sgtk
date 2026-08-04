@@ -76,3 +76,25 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 - `STUDIO_SCRIPT_KEY` (optional): ShotGrid script user key.
 
 When `STUDIO_SCRIPT_NAME` + `STUDIO_SCRIPT_KEY` are both populated, they are used as the primary authentication entry point.
+
+## nl_core tracker provider
+
+### `NlSgtkProvider`
+
+Import from `nl_sgtk.provider`. The provider implements protocol version
+`1.0` for automatic discovery through the `nl_core.tracker_providers` Python
+entry-point group.
+
+- `fetch_task(task_id)` uses `get_task_context()`, hydrates the Step short code,
+  and returns the source Task payload expected by `nl_core`.
+- `find_publishes(context, output)` queries registered `Version` and
+  `PublishedFile` rows for the supplied Task before local fallback is
+  considered. Partial Versions still protect version allocation.
+- `register_publish(context, request)` uses the validated `ShotgunPublish`
+  workflow and preserves the caller's `sg__publish_uuid` for idempotency. It
+  reuses an existing Version and repairs missing PublishedFiles on retry.
+- `health()` reports package version, connection availability, and identity
+  type without exposing credentials.
+
+The provider keeps ShotGrid imports and authentication inside `nl_sgtk`; the
+`nl_core` package depends only on its structural provider protocol.
