@@ -122,7 +122,7 @@ class NlSgtkProvider:
         context: Any,
         request: Mapping[str, Any],
     ) -> Mapping[str, Any]:
-        """Register Version and PublishedFiles through ShotgunPublish."""
+        """Register a Version and optionally project-enabled PublishedFiles."""
 
         from .publisher import ShotgunPublish
 
@@ -164,12 +164,13 @@ class NlSgtkProvider:
                     str(preview),
                     "sg_uploaded_movie",
                 )
-            self._ensure_published_files(
-                sg,
-                publisher,
-                existing,
-                request,
-            )
+            if publisher.published_files_enabled():
+                self._ensure_published_files(
+                    sg,
+                    publisher,
+                    existing,
+                    request,
+                )
             result = dict(existing)
             result["sg__publish_uuid"] = publish_uuid
             result["reused"] = True
@@ -179,7 +180,8 @@ class NlSgtkProvider:
             validate=True,
             upload_preview=bool(preview),
         )
-        self._ensure_published_files(sg, publisher, result, request)
+        if publisher.published_files_enabled():
+            self._ensure_published_files(sg, publisher, result, request)
         result["sg__publish_uuid"] = publish_uuid
         result["reused"] = False
         return result

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+
+- Added `published_files_enabled(project=None)` as the future project-settings
+  integration point. It intentionally returns `False` for every project in
+  this release, so PublishedFile creation and repair remain globally disabled
+  while Version creation and movie upload stay active.
+- Added `PublishedFilePublishError`, which exposes the created Version ID and
+  publish UUID when an enabled PublishedFile batch fails.
+
+### Fixed
+
+- Each `sgtk_login()` call now receives a deep-copied ShotGrid client from the
+  cached authenticated session, avoiding shared-client concurrency failures.
+- PublishedFile `path` values now use ShotGrid's `{"local_path": path}` shape,
+  while `sg_path_string` remains a plain string.
+
+### Compatibility
+
+- PublishedFile registration cannot be enabled in this release. The reserved
+  feature-gate function will be connected to project settings in a future
+  implementation. This capability release bumps the minor version.
+
 ## 0.6.2
 
 ### Fixed

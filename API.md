@@ -8,6 +8,9 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 
 - `sgtk_login(base_url=SHOTGRID_URL, product=DEFAULT_PRODUCT)`
   - Returns `(sg, user)` on success, `(None, None)` on failure.
+  - Caches the authenticated source session, then deep-copies the ShotGrid
+    client and user data for each call so parallel callers do not share one
+    mutable API client.
   - Uses script authentication first when both `STUDIO_SCRIPT_NAME` and `STUDIO_SCRIPT_KEY` are set.
   - Falls back to interactive SGTK user login otherwise.
 - `get_user()`
@@ -66,7 +69,13 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 - `ShotgunPublish.retrieve_version_info(validate=True)`
   - Returns the ShotGrid `Version` payload, converting file lists to semicolon-separated ShotGrid path fields.
 - `ShotgunPublish.publish(validate=True, upload_preview=True)`
-  - Creates the `Version`, uploads preview media when available, and creates related `PublishedFile` records.
+  - Creates the `Version` and uploads preview media when available.
+  - PublishedFile creation is currently disabled globally.
+  - The `published_files_enabled(project=None)` feature-gate function currently
+    always returns `False`; its project argument is reserved for a future
+    project-settings implementation.
+  - Raises `PublishedFilePublishError` with `version_id` and `publish_uuid`
+    attributes if optional PublishedFile creation fails after Version creation.
   - Registers publish state updates in `~/.nolabel/.data/context_logger.db` for NL Hub.
 
 ## Environment Variables
@@ -92,7 +101,8 @@ entry-point group.
   considered. Partial Versions still protect version allocation.
 - `register_publish(context, request)` uses the validated `ShotgunPublish`
   workflow and preserves the caller's `sg__publish_uuid` for idempotency. It
-  reuses an existing Version and repairs missing PublishedFiles on retry.
+  reuses an existing Version. PublishedFile repair remains behind the disabled
+  feature gate.
 - `health()` reports package version, connection availability, and identity
   type without exposing credentials.
 
