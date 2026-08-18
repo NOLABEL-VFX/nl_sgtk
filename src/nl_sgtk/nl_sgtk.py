@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 import logging
 import os
 import webbrowser
@@ -15,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 try:
     notify_if_update_available(__version__)
@@ -569,8 +570,9 @@ def sgtk_login(
     """
     try:
         sg, user = _sgtk_login_cached(base_url=base_url, product=product)
-        # Return a copy so downstream code can mutate user metadata safely.
-        return sg, dict(user)
+        # Keep authentication cached, but give every caller an independent API
+        # client. shotgun_api3 connections are not safe to share concurrently.
+        return copy.deepcopy(sg), copy.deepcopy(user)
     except Exception as exc:
         _sgtk_login_cached.cache_clear()
         # In production you may want narrower exceptions, but keep one catch here for the public API.

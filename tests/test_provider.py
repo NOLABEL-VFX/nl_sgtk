@@ -63,6 +63,7 @@ class FakeShotGrid:
 
 class FakePublisher:
     publish_calls = 0
+    enable_published_files = False
 
     def __init__(self, sg: FakeShotGrid, user: Mapping[str, Any]) -> None:
         del user
@@ -112,6 +113,9 @@ class FakePublisher:
             },
         }
 
+    def published_files_enabled(self) -> bool:
+        return self.enable_published_files
+
 
 def _request() -> Dict[str, Any]:
     return {
@@ -139,7 +143,7 @@ def _context() -> Context:
     )
 
 
-def test_existing_uuid_reuses_version_and_repairs_published_file(
+def test_existing_uuid_reuses_version_without_published_file_by_default(
     monkeypatch: Any,
 ) -> None:
     from nl_sgtk import publisher as publisher_module
@@ -159,14 +163,14 @@ def test_existing_uuid_reuses_version_and_repairs_published_file(
     assert result["id"] == 50
     assert result["reused"] is True
     assert FakePublisher.publish_calls == 0
-    assert sg.files[0]["sg_path_string"].endswith("render.exr")
+    assert sg.files == []
 
     repeated = _provider(sg).register_publish(_context(), _request())
     assert repeated["id"] == 50
-    assert len(sg.files) == 1
+    assert sg.files == []
 
 
-def test_new_version_verifies_published_file_registration(
+def test_new_version_skips_published_file_registration_by_default(
     monkeypatch: Any,
 ) -> None:
     from nl_sgtk import publisher as publisher_module
@@ -180,6 +184,23 @@ def test_new_version_verifies_published_file_registration(
     assert result["id"] == 99
     assert result["reused"] is False
     assert FakePublisher.publish_calls == 1
+    assert sg.files == []
+
+
+def test_project_flag_enables_published_file_registration(
+    monkeypatch: Any,
+) -> None:
+    from nl_sgtk import publisher as publisher_module
+
+    sg = FakeShotGrid()
+    FakePublisher.enable_published_files = True
+    monkeypatch.setattr(publisher_module, "ShotgunPublish", FakePublisher)
+    try:
+        result = _provider(sg).register_publish(_context(), _request())
+    finally:
+        FakePublisher.enable_published_files = False
+
+    assert result["id"] == 99
     assert len(sg.files) == 1
 
 

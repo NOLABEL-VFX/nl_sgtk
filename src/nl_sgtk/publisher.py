@@ -26,11 +26,34 @@ _CONTEXT_LOGGER_DB = pathlib.Path.home() / ".nolabel" / ".data" / "context_logge
 _PUBLISH_LOG_TABLE = "shotgun_publish_log"
 
 
+def published_files_enabled(project: Optional[Dict[str, Any]] = None) -> bool:
+    """Return whether PublishedFile registration is enabled.
+
+    ``project`` is accepted now so this function can read a project setting in
+    a future release. PublishedFile registration is intentionally disabled
+    globally until that integration is implemented.
+    """
+    del project
+    return False
+
+
+class PublishedFilePublishError(RuntimeError):
+    """Raised when Version creation succeeds but PublishedFile creation fails."""
+
+    def __init__(self, version_id: int, publish_uuid: str) -> None:
+        self.version_id = version_id
+        self.publish_uuid = publish_uuid
+        super().__init__(
+            "PublishedFile creation failed after creating Version "
+            f"{version_id} (publish UUID: {publish_uuid})."
+        )
+
+
 @dataclass
 class _PublishData:
     code: str
     name: str
-    path: str
+    path: Dict[str, str]
     sg_path_string: str
     entity: Optional[dict]
     task: Optional[dict]
@@ -637,7 +660,7 @@ class ShotgunPublish:
         data = _PublishData(
             code=pathlib.Path(path).name,
             name=name,
-            path=path,
+            path={"local_path": path},
             sg_path_string=path,
             entity=self.context.get("entity"),
             task=self.context.get("task"),
@@ -648,6 +671,11 @@ class ShotgunPublish:
             description=version.get("description", ""),
         )
         return data.to_payload()
+
+    def published_files_enabled(self) -> bool:
+        """Return the central PublishedFile feature flag for this project."""
+        project = self.context.get("project") or self.version.get("project") or {}
+        return published_files_enabled(project)
 
     def validate(self, require_preview: bool = True) -> None:
         if not any(self.version[key] for key in self.FILE_FIELDS):
@@ -803,16 +831,17 @@ class ShotgunPublish:
                 raise
 
         publish_error = None
-        try:
-            requests = [
-                self.publish_request_from_file(file_path, version)
-                for file_path in self.extract_filepaths()
-            ]
-            if requests:
-                self.sg.batch(requests)
-        except Exception:
-            publish_error = traceback.format_exc()
-            self.logger.error("Failed to create PublishedFile records:\n%s", publish_error)
+        if self.published_files_enabled():
+            try:
+                requests = [
+                    self.publish_request_from_file(file_path, version)
+                    for file_path in self.extract_filepaths()
+                ]
+                if requests:
+                    self.sg.batch(requests)
+            except Exception:
+                publish_error = traceback.format_exc()
+                self.logger.error("Failed to create PublishedFile records:\n%s", publish_error)
 
         self.version["id"] = version["id"]
         version_payload["id"] = version["id"]
@@ -822,4 +851,9 @@ class ShotgunPublish:
             version_id=version["id"],
             error=publish_error,
         )
+        if publish_error:
+            raise PublishedFilePublishError(
+                int(version["id"]),
+                self.publish_uuid,
+            )
         return self.version
