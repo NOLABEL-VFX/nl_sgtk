@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 from .nl_sgtk_version_check import notify_if_update_available
+from .user_cache import update_user_cache
 
 import sgtk
 from shotgun_api3 import shotgun
@@ -16,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 try:
     notify_if_update_available(__version__)
@@ -208,7 +209,14 @@ def _task_to_compact_dict(
       - Adds `fps`, `project_path`
       - If entity is Shot, adds shot-specific context fields
     """
-    out: Dict[str, Any] = {k: task_row.get(k) for k in TASK_BASE_FIELDS}
+    # ShotGrid returns ``id`` and ``type`` on entity rows without requiring
+    # them in the requested field list. Preserve that stable identity so a
+    # selected compact row can be resolved directly with get_task_context().
+    out: Dict[str, Any] = {
+        "id": task_row.get("id"),
+        "type": task_row.get("type") or "Task",
+    }
+    out.update({k: task_row.get(k) for k in TASK_BASE_FIELDS})
 
     # project meta
     out["fps"] = task_row.get("project.Project.sg_master_fps")
@@ -570,6 +578,10 @@ def sgtk_login(
     """
     try:
         sg, user = _sgtk_login_cached(base_url=base_url, product=product)
+        try:
+            update_user_cache(sg, user, base_url=base_url)
+        except Exception as cache_exc:
+            log.warning("Unable to update the local user cache: %s", cache_exc)
         # Keep authentication cached, but give every caller an independent API
         # client. shotgun_api3 connections are not safe to share concurrently.
         return copy.deepcopy(sg), copy.deepcopy(user)

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- Successful logins now maintain a concurrency-safe, indexed user profile
+  cache in `~/.nolabel/local/nl_core/nl_core.sqlite3` for use by `nl_core`.
+- Cached profiles include non-secret ShotGrid identity, department,
+  permission rule set, group, project, email, and account-status data, plus a
+  JSON refresh-status record and timestamps.
+- Full profile data refreshes at most once every 24 hours, while every login
+  updates `last_accessed`. Profiles unused for more than 90 days move to the
+  separate `nl_sgtk_user_data_old` archive table.
+
+### Fixed
+
+- Concurrent login processes now coordinate profile refreshes through a
+  recoverable SQLite lease instead of issuing duplicate ShotGrid queries.
+- Concurrent first-time database connections tolerate the transient Windows
+  lock raised while another connection enables WAL journal mode.
+- Failed ShotGrid refreshes preserve the last successful profile, update
+  `last_accessed`, record a non-secret failure status, and clear the lease for
+  a later retry.
+- Login and ShotGrid payloads are explicitly allowlisted so unexpected
+  credential or session fields cannot be written to the cache.
+- Existing pre-lease 0.8 cache tables are migrated in place.
+
+### Compatibility
+
+- Existing `nl_core` tables and schema ownership are unchanged. User-cache
+  write failures are non-fatal to authentication. No credentials or session
+  tokens are stored. This backward-compatible capability bumps the minor
+  version.
+- Compact rows returned by `get_user_tasks()` now preserve their ShotGrid
+  `id` and `type`. Existing fields and function signatures are unchanged, and
+  callers can pass a selected row's `id` directly to `get_task_context()`.
+
 ## 0.7.0
 
 ### Added
