@@ -13,6 +13,16 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
     mutable API client.
   - Uses script authentication first when both `STUDIO_SCRIPT_NAME` and `STUDIO_SCRIPT_KEY` are set.
   - Falls back to interactive SGTK user login otherwise.
+  - On every successful login, updates the current profile's `last_accessed`
+    value in `~/.nolabel/local/nl_core/nl_core.sqlite3`. Rich non-secret user
+    metadata (including department, permission rule set, groups, projects,
+    email, and status) is refreshed from ShotGrid when it is at least 24 hours
+    old. A SQLite refresh lease prevents concurrent logins from duplicating the
+    same ShotGrid query. Failed refreshes preserve the last good profile, record
+    the access and failure status, and do not turn a valid login into a failure.
+    Only explicitly allowlisted non-secret identity fields are persisted.
+  - Profiles unused for more than 90 days are moved atomically from
+    `nl_sgtk_user_data` to `nl_sgtk_user_data_old`.
 - `get_user()`
   - Returns current resolved user dictionary.
 
@@ -20,6 +30,8 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 
 - `get_user_tasks(user, sg=None)`
   - Returns a normalized list of tasks for a specific HumanUser id.
+  - Every compact task includes its stable ShotGrid `id` and `type`, allowing
+    the selected row's `id` to be passed directly to `get_task_context()`.
 - `get_task_context(task_id, sg=None)`
   - Returns context for a ShotGrid Task id.
 - `get_entity_context(entity_type, entity_id, sg=None)`

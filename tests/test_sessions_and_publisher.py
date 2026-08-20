@@ -14,6 +14,7 @@ def test_sgtk_login_returns_independent_copies(monkeypatch: Any) -> None:
     cached_sg = CopyableConnection()
     cached_user = {"id": 1, "metadata": {"role": "artist"}}
     monkeypatch.setattr(api, "_sgtk_login_cached", lambda **kwargs: (cached_sg, cached_user))
+    monkeypatch.setattr(api, "update_user_cache", lambda *args, **kwargs: None)
 
     first_sg, first_user = api.sgtk_login()
     second_sg, second_user = api.sgtk_login()
@@ -26,6 +27,25 @@ def test_sgtk_login_returns_independent_copies(monkeypatch: Any) -> None:
     first_user["metadata"]["role"] = "lead"
     assert second_sg.state["requests"] == []
     assert second_user["metadata"]["role"] == "artist"
+
+
+def test_cache_failure_does_not_break_successful_login(monkeypatch: Any) -> None:
+    from nl_sgtk import nl_sgtk as api
+
+    cached_sg = CopyableConnection()
+    cached_user = {"type": "HumanUser", "id": 1, "name": "Artist"}
+    monkeypatch.setattr(api, "_sgtk_login_cached", lambda **kwargs: (cached_sg, cached_user))
+
+    def fail_cache(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise OSError("read-only cache directory")
+
+    monkeypatch.setattr(api, "update_user_cache", fail_cache)
+
+    sg, user = api.sgtk_login()
+
+    assert sg is not None
+    assert user == cached_user
 
 
 def test_published_file_payload_uses_shotgrid_path_dictionary() -> None:
