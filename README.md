@@ -34,6 +34,34 @@ project_context = nl_sgtk.get_project_context(project_id=101, sg=sg)
 active_projects = nl_sgtk.list_active_projects(sg=sg)
 ```
 
+Create a technical Ticket for Pipeline Development:
+
+```python
+from nl_sgtk import TicketPriority, TicketType, create_ticket, pipeline_group
+
+result = create_ticket(
+    "Nuke render failed",
+    "The render process stopped before frame 1008.",
+    ticket_type=TicketType.ERROR,
+    priority=TicketPriority.HIGH,
+    user_group=pipeline_group.PIPELINE,
+    metadata={
+        "file": "shot010_comp_v003.nk",
+        "frame": 1008,
+        "application": "Nuke",
+    },
+    attachments=["C:/temp/render_diagnostic.txt"],
+)
+print(result.ticket_id)
+```
+
+Use `pipeline_group.COMFY`, `pipeline_group.MAX`, or
+`pipeline_group.HOUDINI` to route respectively to ComfyUI Development, 3DMax
+Development, or Houdini Development. Callers may alternatively pass a complete
+ShotGrid Group or HumanUser entity dictionary to `user_group`.
+
+See [REPORT_API.md](REPORT_API.md) for the compact reporting API reference.
+
 ## Module Overview
 
 The `nl_sgtk` module provides:
@@ -43,6 +71,7 @@ The `nl_sgtk` module provides:
 - Entity context fetching for shots, assets, and projects.
 - ShotGrid URL parsing with `parse_link`.
 - ShotGrid publishing through `ShotgunPublish`.
+- Typed technical Ticket creation through `nl_sgtk.tickets`.
 
 ## Future Additions
 
