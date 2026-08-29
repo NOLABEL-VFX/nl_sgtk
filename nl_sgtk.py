@@ -5,6 +5,6 @@ This file remains at the repository root so older releases that fetch
 supported consumers have migrated to the `src` package layout.
 """
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 from src.nl_sgtk import *  # noqa: F401,F403

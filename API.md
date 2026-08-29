@@ -54,6 +54,48 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 - `verify_path(path, storages, system=None)`
   - Normalizes storage paths across platforms.
 
+## Technical Ticket APIs
+
+Import these from `nl_sgtk` or `nl_sgtk.tickets`.
+
+- `create_ticket(topic, content, *, ticket_type=TicketType.BUG, priority=TicketPriority.MEDIUM, user_group=pipeline_group.PIPELINE, attachments=(), metadata=None, sg=None, user=None, occurred_at=None)`
+  - Authenticates through `sgtk_login(product="NL SGTK Technical Tickets")`
+    unless a paired `sg` and current `user` are injected.
+  - Creates a Ticket in Project `00_IN_HOUSE`, defaults it to status `wtg`,
+    verifies the created record by readback, and then uploads validated files.
+  - Adds current-user and UTC occurrence metadata above the supplied content.
+    Caller metadata is serialized deterministically, and common credential,
+    token, password, bearer, and session-URL patterns are redacted.
+  - Accepts `PipelineGroup`/`pipeline_group` enum routing or a complete
+    ShotGrid `Group`/`HumanUser` entity dictionary. The supplied entity is
+    verified before Ticket creation.
+  - Returns an immutable `TicketResult` containing the verified Ticket,
+    attachment IDs, and attachment paths.
+- `pipeline_group` / `PipelineGroup`
+  - Members: `PIPELINE`, `COMFY`, `MAX`, and `HOUDINI`.
+  - Routes: `PIPELINE` → `Pipeline Development`, `COMFY` →
+    `ComfyUI Development`, `MAX` → `3DMax Development`, and `HOUDINI` →
+    `Houdini Development`.
+  - Each configured Group ID and name is verified before Ticket creation.
+- `TicketType`
+  - Live ShotGrid types: `BUG`, `FEATURE`, `SOFTWARE_NEED`, and
+    `DATA_WRANGLING`.
+  - Semantic aliases: `ERROR` maps to `BUG`; `REQUEST` maps to `FEATURE`.
+- `TicketPriority`
+  - Members: `LOW`, `MEDIUM`, `HIGH`, `URGENT`, and `CRITICAL`.
+- `format_ticket_content(content, user, *, metadata=None, occurred_at=None)`
+  - Builds the structured and redacted Ticket description without writing.
+- Ticket exceptions
+  - `TicketValidationError`, `TicketAuthenticationError`,
+    `TicketSchemaError`, `TicketRoutingError`, `TicketCreationError`,
+    `TicketReadbackError`, and `TicketAttachmentError` derive from
+    `TicketError`.
+  - `TicketReadbackError.ticket_id` identifies a record that was created but
+    could not be verified.
+  - `TicketAttachmentError` retains `ticket_id`, `failed_path`, and
+    `uploaded_paths`; callers must inspect the existing Ticket before retrying
+    because attachment uploads are non-atomic.
+
 ## Publishing APIs
 
 - `ShotgunPublish(logger=None, script_user=None, script_key=None, override_user=None, sg=None, user=None, validate_paths=True, trusted=False)`

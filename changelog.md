@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+
+- Added the Qt- and DCC-independent `nl_sgtk.tickets` module for authenticated
+  technical Ticket creation.
+- Added `PipelineGroup` and the requested `pipeline_group` alias with
+  `PIPELINE`, `COMFY`, `MAX`, and `HOUDINI` members. They route to Pipeline
+  Development, ComfyUI Development, 3DMax Development, and Houdini Development
+  respectively.
+- Added enum-based `TicketType` and `TicketPriority` contracts while allowing
+  callers to supply a complete Group or HumanUser entity link as the recipient.
+- Aligned enum values with the live Ticket schema. `ERROR` safely aliases
+  `BUG`, `REQUEST` aliases `FEATURE`, and native Software Need, Data Wrangling,
+  and Urgent values are available.
+- Added structured metadata formatting with automatic reporter and UTC
+  occurrence information, deterministic values, and secret redaction.
+- Added validated multi-file attachments and immutable `TicketResult` output.
+- Added specific validation, authentication, schema, routing, creation,
+  readback, and partial-attachment exceptions.
+- Added `REPORT_API.md` with a compact integration example and option summary.
+
+### Safety
+
+- Ticket fields and enum values are checked against the live ShotGrid schema
+  before creation.
+- The configured `00_IN_HOUSE` Project and selected Development Group, or a
+  caller-supplied Group/HumanUser, are verified before writing.
+- Every created Ticket is read back before attachment uploads start.
+- Attachment paths are validated before Ticket creation. Partial upload errors
+  retain the created Ticket ID and successful paths so callers do not blindly
+  create duplicates.
+- Common tokens, credentials, passwords, bearer values, and session-bearing
+  URL queries are redacted from metadata and content.
+
+### Compatibility
+
+- Existing APIs and Toolkit behavior are unchanged. The new Ticket API is
+  additive and bumps the package minor version from 0.8.0 to 0.9.0.
+
 ## 0.8.0
 
 ### Added
