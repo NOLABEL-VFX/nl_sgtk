@@ -58,7 +58,7 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 
 Import these from `nl_sgtk` or `nl_sgtk.tickets`.
 
-- `create_ticket(topic, content, *, ticket_type=TicketType.BUG, priority=TicketPriority.MEDIUM, user_group=pipeline_group.PIPELINE, was_error=True, attachments=(), metadata=None, sg=None, user=None, occurred_at=None)`
+- `create_ticket(topic, content, *, ticket_type=TicketType.BUG, priority=TicketPriority.MEDIUM, user_group=pipeline_group.PIPELINE, was_error=True, attachments=(), metadata=None, session_id=None, deduplicate=True, sg=None, user=None, occurred_at=None)`
   - Authenticates through `sgtk_login(product="NL SGTK Technical Tickets")`
     unless a paired `sg` and current `user` are injected.
   - Creates a Ticket in Project `00_IN_HOUSE`, defaults it to status `wtg`,
@@ -80,6 +80,12 @@ Import these from `nl_sgtk` or `nl_sgtk.tickets`.
     Group name is read dynamically and may change without breaking routing.
   - Writes `was_error` to the Ticket's `sg_was_error` checkbox. Technical
     reports default to `True`; pass `False` for a manual user report.
+  - Stores redacted canonical correlation data in `sg_metadata_json`.
+  - Matching open error Tickets (same non-empty `session_id` or deterministic
+    error fingerprint) receive a linked Note and Note attachments instead of
+    another Ticket. Pass `deduplicate=False` to force creation.
+  - `TicketResult.created`, `TicketResult.note`, and `TicketResult.note_id`
+    identify correlated occurrences.
 - `TicketType`
   - Live ShotGrid types: `BUG`, `FEATURE`, `SOFTWARE_NEED`, and
     `DATA_WRANGLING`.

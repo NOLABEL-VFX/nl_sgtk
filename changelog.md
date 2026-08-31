@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0
+
+### Added
+
+- Added canonical, redacted Ticket correlation metadata in
+  `sg_metadata_json`, including session ID, error fingerprint, reporter,
+  occurrence timestamps, and occurrence count.
+- Added `session_id` and `deduplicate` options to `create_ticket`.
+- Repeated open error reports now create a linked Note and upload fresh logs or
+  screenshots to that Note. `TicketResult` exposes `created`, `note`, and
+  `note_id` so callers can distinguish a new Ticket from a correlated event.
+
+### Compatibility
+
+- This is a backward-compatible capability addition. Error reporting now
+  deduplicates by default; callers that require one Ticket per report can pass
+  `deduplicate=False`. Manual reports (`was_error=False`) remain independent.
+- The package minor version moves from 0.9.2 to 0.10.0.
+
 ## 0.9.2
 
 ### Added

@@ -8,6 +8,7 @@ from .tickets import (  # noqa: F401
     TicketError,
     TicketPriority,
     TicketReadbackError,
+    TicketNoteError,
     TicketResult,
     TicketRoutingError,
     TicketSchemaError,

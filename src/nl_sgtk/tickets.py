@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -104,6 +105,14 @@ class TicketAttachmentError(TicketError):
         super().__init__(message)
 
 
+class TicketNoteError(TicketError):
+    """Report a duplicate occurrence that could not be added as a Note."""
+
+    def __init__(self, ticket_id: int, message: str) -> None:
+        self.ticket_id = ticket_id
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class TicketResult:
     """Describe a verified Ticket and its successfully uploaded attachments."""
@@ -111,12 +120,20 @@ class TicketResult:
     ticket: Mapping[str, Any]
     attachment_ids: Tuple[int, ...] = ()
     attachment_paths: Tuple[str, ...] = ()
+    note: Optional[Mapping[str, Any]] = None
+    created: bool = True
 
     @property
     def ticket_id(self) -> int:
         """Return the verified numeric Ticket identifier."""
 
         return int(self.ticket["id"])
+
+    @property
+    def note_id(self) -> Optional[int]:
+        """Return the Note ID when this occurrence was correlated."""
+
+        return int(self.note["id"]) if self.note else None
 
 
 Recipient = Union[PipelineGroup, Mapping[str, Any]]
@@ -132,6 +149,8 @@ def create_ticket(
     was_error: bool = True,
     attachments: Sequence[Union[str, os.PathLike[str]]] = (),
     metadata: Optional[Mapping[str, Any]] = None,
+    session_id: Optional[str] = None,
+    deduplicate: bool = True,
     sg: Any = None,
     user: Optional[Mapping[str, Any]] = None,
     occurred_at: Optional[datetime] = None,
@@ -147,7 +166,12 @@ def create_ticket(
         was_error: Whether the Ticket originated from a technical error. Pass
             ``False`` for a manual user report.
         attachments: Existing local files uploaded after Ticket creation.
-        metadata: Structured diagnostic values rendered above ``content``.
+        metadata: Structured diagnostic values rendered above ``content`` and
+            stored as canonical JSON in ``sg_metadata_json``.
+        session_id: Optional stable application-session identifier used for
+            correlation. Secret session tokens must not be supplied.
+        deduplicate: Add matching error occurrences as Notes instead of new
+            Tickets. Matching uses session ID or a deterministic fingerprint.
         sg: Optional injected ShotGrid connection for tests or host reuse.
         user: Current user paired with an injected connection.
         occurred_at: Optional timezone-aware occurrence timestamp.
@@ -168,7 +192,8 @@ def create_ticket(
     Side Effects:
         - Authenticates through :func:`nl_sgtk.sgtk_login` when no connection
           is injected.
-        - Creates one ShotGrid Ticket and uploads zero or more attachments.
+        - Creates one ShotGrid Ticket, or a Note on a matching open Ticket,
+          and uploads zero or more attachments to the created entity.
 
     Notes:
         - Attachment uploads are non-atomic. Never blindly retry after
@@ -182,6 +207,8 @@ def create_ticket(
     normalized_type = _require_enum(ticket_type, TicketType, "ticket_type")
     normalized_priority = _require_enum(priority, TicketPriority, "priority")
     normalized_was_error = _require_bool(was_error, "was_error")
+    normalized_deduplicate = _require_bool(deduplicate, "deduplicate")
+    normalized_session_id = _normalize_session_id(session_id)
     attachment_paths = _validate_attachments(attachments)
     current = _normalize_datetime(occurred_at)
     client, current_user = _resolve_session(sg, user)
@@ -200,6 +227,26 @@ def create_ticket(
         metadata=metadata,
         occurred_at=current,
     )
+    metadata_json = _build_metadata_json(
+        normalized_topic,
+        normalized_content,
+        current_user,
+        metadata,
+        normalized_session_id,
+        current,
+    )
+    if normalized_was_error and normalized_deduplicate:
+        match = _find_correlated_ticket(client, project, metadata_json)
+        if match:
+            return _append_occurrence(
+                client,
+                match,
+                project,
+                normalized_topic,
+                description,
+                metadata_json,
+                attachment_paths,
+            )
     payload = {
         "title": normalized_topic,
         "description": description,
@@ -208,6 +255,7 @@ def create_ticket(
         "sg_priority": normalized_priority.value,
         "sg_status_list": DEFAULT_TICKET_STATUS,
         "sg_was_error": normalized_was_error,
+        "sg_metadata_json": json.dumps(metadata_json, ensure_ascii=False, sort_keys=True),
         "addressings_to": [recipient],
         "addressings_cc": [],
     }
@@ -242,6 +290,144 @@ def create_ticket(
 
     return TicketResult(
         ticket=ticket,
+        attachment_ids=tuple(uploaded_ids),
+        attachment_paths=tuple(uploaded_paths),
+    )
+
+
+def _build_metadata_json(
+    topic: str,
+    content: str,
+    user: Mapping[str, Any],
+    metadata: Optional[Mapping[str, Any]],
+    session_id: Optional[str],
+    occurred_at: datetime,
+) -> dict[str, Any]:
+    safe_metadata = _sanitize_metadata_value(metadata or {})
+    fingerprint_source = {
+        "topic": topic.casefold(),
+        "content": _redact_secrets(content).casefold(),
+        "metadata": safe_metadata,
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_source, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    occurred = occurred_at.isoformat()
+    return {
+        "schema_version": 1,
+        "session_id": session_id,
+        "error_fingerprint": fingerprint,
+        "reporter": {"type": user.get("type"), "id": user.get("id")},
+        "first_occurred_at": occurred,
+        "last_occurred_at": occurred,
+        "occurrence_count": 1,
+        "metadata": safe_metadata,
+    }
+
+
+def _sanitize_metadata_value(value: Any, key: str = "") -> Any:
+    if re.search(r"(?i)(api[_-]?key|password|passwd|token|secret)", key):
+        return "<redacted>"
+    if isinstance(value, Mapping):
+        return {
+            str(item_key): _sanitize_metadata_value(item_value, str(item_key))
+            for item_key, item_value in sorted(
+                value.items(), key=lambda item: str(item[0]).casefold()
+            )
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_metadata_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_secrets(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _redact_secrets(str(value))
+
+
+def _find_correlated_ticket(
+    client: Any,
+    project: Mapping[str, Any],
+    metadata_json: Mapping[str, Any],
+) -> Optional[Mapping[str, Any]]:
+    try:
+        candidates = client.find(
+            "Ticket",
+            [
+                ["project", "is", project],
+                ["sg_was_error", "is", True],
+                ["sg_status_list", "is_not", "res"],
+                ["sg_metadata_json", "is_not", None],
+            ],
+            ["title", "sg_metadata_json", "sg_status_list"],
+            order=[{"field_name": "created_at", "direction": "desc"}],
+            limit=100,
+        )
+    except Exception as exc:
+        raise TicketReadbackError(0, "Existing Tickets could not be checked for duplicates.") from exc
+    wanted_session = metadata_json.get("session_id")
+    wanted_fingerprint = metadata_json.get("error_fingerprint")
+    for candidate in candidates or ():
+        try:
+            stored = json.loads(candidate.get("sg_metadata_json") or "{}")
+        except (TypeError, ValueError):
+            continue
+        same_session = bool(wanted_session and stored.get("session_id") == wanted_session)
+        same_error = bool(wanted_fingerprint and stored.get("error_fingerprint") == wanted_fingerprint)
+        if same_session or same_error:
+            return candidate
+    return None
+
+
+def _append_occurrence(
+    client: Any,
+    ticket: Mapping[str, Any],
+    project: Mapping[str, Any],
+    topic: str,
+    description: str,
+    occurrence: Mapping[str, Any],
+    attachment_paths: Sequence[str],
+) -> TicketResult:
+    ticket_id = int(ticket["id"])
+    note_payload = {
+        "subject": f"Repeated occurrence: {topic}",
+        "content": description,
+        "note_links": [{"type": "Ticket", "id": ticket_id}],
+        "project": project,
+    }
+    _validate_editable_fields(client, "Note", note_payload)
+    try:
+        note = client.create("Note", note_payload)
+        note_id = int(note["id"])
+    except Exception as exc:
+        raise TicketNoteError(ticket_id, f"Ticket {ticket_id} matched, but its Note could not be created.") from exc
+
+    stored = json.loads(ticket.get("sg_metadata_json") or "{}")
+    stored["last_occurred_at"] = occurrence["last_occurred_at"]
+    stored["occurrence_count"] = int(stored.get("occurrence_count") or 1) + 1
+    try:
+        client.update("Ticket", ticket_id, {
+            "sg_metadata_json": json.dumps(stored, ensure_ascii=False, sort_keys=True)
+        })
+    except Exception as exc:
+        raise TicketNoteError(ticket_id, f"Note {note_id} exists, but Ticket metadata could not be updated.") from exc
+
+    uploaded_ids = []
+    uploaded_paths = []
+    for attachment_path in attachment_paths:
+        try:
+            uploaded_ids.append(int(client.upload("Note", note_id, attachment_path)))
+            uploaded_paths.append(attachment_path)
+        except Exception as exc:
+            raise TicketAttachmentError(
+                ticket_id, attachment_path, uploaded_paths,
+                f"Note {note_id} exists, but attachment upload failed for {attachment_path!r}.",
+            ) from exc
+    refreshed = dict(ticket)
+    refreshed["sg_metadata_json"] = json.dumps(stored, ensure_ascii=False, sort_keys=True)
+    return TicketResult(
+        ticket=refreshed,
+        note={"type": "Note", "id": note_id},
+        created=False,
         attachment_ids=tuple(uploaded_ids),
         attachment_paths=tuple(uploaded_paths),
     )
@@ -382,17 +568,7 @@ def _require_named_entity(
 
 
 def _validate_schema(client: Any, payload: Mapping[str, Any]) -> None:
-    try:
-        schema = client.schema_field_read("Ticket")
-    except Exception as exc:
-        raise TicketSchemaError("Ticket schema could not be read before creation.") from exc
-    for field in payload:
-        definition = schema.get(field)
-        if not definition:
-            raise TicketSchemaError(f"Required Ticket field {field!r} is unavailable.")
-        editable = definition.get("editable", {}).get("value", True)
-        if editable is False:
-            raise TicketSchemaError(f"Required Ticket field {field!r} is not editable.")
+    schema = _validate_editable_fields(client, "Ticket", payload)
     for field in ("sg_ticket_type", "sg_priority", "sg_status_list"):
         valid_values = (
             schema[field].get("properties", {}).get("valid_values", {}).get("value")
@@ -401,6 +577,31 @@ def _validate_schema(client: Any, payload: Mapping[str, Any]) -> None:
             raise TicketSchemaError(
                 f"Ticket field {field!r} does not allow {payload[field]!r}."
             )
+
+
+def _validate_editable_fields(
+    client: Any,
+    entity_type: str,
+    payload: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    try:
+        schema = client.schema_field_read(entity_type)
+    except Exception as exc:
+        raise TicketSchemaError(
+            f"{entity_type} schema could not be read before creation."
+        ) from exc
+    for field in payload:
+        definition = schema.get(field)
+        if not definition:
+            raise TicketSchemaError(
+                f"Required {entity_type} field {field!r} is unavailable."
+            )
+        editable = definition.get("editable", {}).get("value", True)
+        if editable is False:
+            raise TicketSchemaError(
+                f"Required {entity_type} field {field!r} is not editable."
+            )
+    return schema
 
 
 def _readback_ticket(client: Any, ticket_id: int) -> Mapping[str, Any]:
@@ -416,6 +617,7 @@ def _readback_ticket(client: Any, ticket_id: int) -> Mapping[str, Any]:
                 "sg_priority",
                 "sg_status_list",
                 "sg_was_error",
+                "sg_metadata_json",
                 "addressings_to",
                 "created_by",
                 "created_at",
@@ -472,6 +674,15 @@ def _require_bool(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise TicketValidationError(f"{name} must be a bool value.")
     return value
+
+
+def _normalize_session_id(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = _require_text(value, "session_id", maximum=255)
+    if re.search(r"(?i)(token|password|secret|bearer|https?://|[?&][^=]+=)", normalized):
+        raise TicketValidationError("session_id must be an opaque non-secret identifier.")
+    return normalized
 
 
 def _normalize_datetime(value: Optional[datetime]) -> datetime:

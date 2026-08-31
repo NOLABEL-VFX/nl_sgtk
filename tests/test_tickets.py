@@ -38,8 +38,15 @@ class FakeShotGrid:
         self.readback = readback
         self.created: List[Dict[str, Any]] = []
         self.uploaded: List[str] = []
+        self.updated: List[Dict[str, Any]] = []
+        self.existing_tickets: List[Dict[str, Any]] = []
 
     def schema_field_read(self, entity_type: str) -> Dict[str, Any]:
+        if entity_type == "Note":
+            return {
+                field: {"editable": {"value": True}, "properties": {}}
+                for field in ("subject", "content", "note_links", "project")
+            }
         assert entity_type == "Ticket"
         fields = (
             "title",
@@ -49,6 +56,7 @@ class FakeShotGrid:
             "sg_priority",
             "sg_status_list",
             "sg_was_error",
+            "sg_metadata_json",
             "addressings_to",
             "addressings_cc",
         )
@@ -104,6 +112,9 @@ class FakeShotGrid:
         return None
 
     def create(self, entity_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if entity_type == "Note":
+            self.created.append(dict(payload))
+            return {"type": "Note", "id": 9100}
         assert entity_type == "Ticket"
         if self.create_error:
             raise self.create_error
@@ -111,11 +122,20 @@ class FakeShotGrid:
         return {"type": "Ticket", "id": 9001}
 
     def upload(self, entity_type: str, entity_id: int, path: str) -> int:
-        assert (entity_type, entity_id) == ("Ticket", 9001)
+        assert (entity_type, entity_id) in (("Ticket", 9001), ("Note", 9100))
         if self.upload_error_at == len(self.uploaded):
             raise RuntimeError("upload unavailable")
         self.uploaded.append(path)
         return 7000 + len(self.uploaded)
+
+    def find(self, entity_type: str, filters: Any, fields: Any, **kwargs: Any) -> List[Dict[str, Any]]:
+        assert entity_type == "Ticket"
+        return list(self.existing_tickets)
+
+    def update(self, entity_type: str, entity_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        assert (entity_type, entity_id) == ("Ticket", 9001)
+        self.updated.append(dict(payload))
+        return {"type": "Ticket", "id": entity_id, **payload}
 
 
 def _user() -> Dict[str, Any]:
@@ -162,6 +182,9 @@ def test_pipeline_enum_creates_verified_ticket_with_metadata_and_attachment(
     assert payload["sg_priority"] == "High"
     assert payload["sg_status_list"] == "wtg"
     assert payload["sg_was_error"] is True
+    stored = __import__("json").loads(payload["sg_metadata_json"])
+    assert stored["occurrence_count"] == 1
+    assert len(stored["error_fingerprint"]) == 64
     assert payload["description"].startswith("Technical ticket metadata")
     assert "reporter: Ada Artist" in payload["description"]
     assert 'file: "shot010.nk"' in payload["description"]
@@ -255,6 +278,42 @@ def test_manual_report_can_be_marked_as_not_originating_from_an_error() -> None:
 
     assert result.ticket["sg_was_error"] is False
     assert sg.created[0]["sg_was_error"] is False
+
+
+def test_matching_session_adds_note_and_uploads_to_note(tmp_path: Path) -> None:
+    import json
+
+    attachment = tmp_path / "repeat.log"
+    attachment.write_text("trace", encoding="utf-8")
+    sg = FakeShotGrid()
+    sg.existing_tickets = [{
+        "type": "Ticket",
+        "id": 9001,
+        "title": "Original",
+        "sg_status_list": "wtg",
+        "sg_metadata_json": json.dumps({
+            "session_id": "nuke-session-42",
+            "error_fingerprint": "different",
+            "occurrence_count": 1,
+        }),
+    }]
+
+    result = create_ticket(
+        "Another crash",
+        "A second error in the same session.",
+        session_id="nuke-session-42",
+        attachments=[attachment],
+        sg=sg,
+        user=_user(),
+    )
+
+    assert result.ticket_id == 9001
+    assert result.note_id == 9100
+    assert result.created is False
+    assert sg.created[0]["note_links"] == [{"type": "Ticket", "id": 9001}]
+    assert sg.created[0]["project"]["id"] == 750
+    assert sg.uploaded == [str(attachment.resolve())]
+    assert json.loads(sg.updated[0]["sg_metadata_json"])["occurrence_count"] == 2
 
 
 @pytest.mark.parametrize(

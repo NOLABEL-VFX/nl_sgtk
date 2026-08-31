@@ -24,6 +24,7 @@ result = create_ticket(
         "file": "shot010_comp_v003.nk",
         "frame": 1008,
     },
+    session_id="nuke-20260831-7f36a1",
     attachments=["C:/temp/render_diagnostic.txt"],
 )
 
@@ -44,11 +45,19 @@ print(result.ticket_id)
 - `was_error` writes the Ticket's `sg_was_error` checkbox. It defaults to
   `True` for this technical-report API; pass `False` for a manual user report.
 - `metadata` accepts structured diagnostic values and is rendered above the
-  content with reporter and UTC occurrence information.
+  content with reporter and UTC occurrence information. A redacted canonical
+  copy is stored in the Ticket's `sg_metadata_json` field.
+- `session_id` accepts a stable, opaque application-session identifier. Do not
+  pass authentication tokens or session URLs.
+- Error reports are deduplicated by default. When an open Ticket in
+  `00_IN_HOUSE` has the same non-empty session ID or deterministic error
+  fingerprint, the occurrence becomes a linked Note and new attachments are
+  uploaded to that Note. Pass `deduplicate=False` to force a new Ticket.
 - `attachments` accepts existing local file paths.
 - Tests or host applications may inject paired `sg` and `user` arguments;
   otherwise the API calls `sgtk_login()` for the current user.
 
-The function returns `TicketResult`. Validation and schema errors happen
+The function returns `TicketResult`. `created` is `False` and `note_id` is set
+for a correlated occurrence. Validation and schema errors happen
 before creation. If readback or an attachment fails after creation, the raised
 exception retains the created `ticket_id`; inspect that Ticket before retrying.
