@@ -48,6 +48,7 @@ class FakeShotGrid:
             "sg_ticket_type",
             "sg_priority",
             "sg_status_list",
+            "sg_was_error",
             "addressings_to",
             "addressings_cc",
         )
@@ -160,6 +161,7 @@ def test_pipeline_enum_creates_verified_ticket_with_metadata_and_attachment(
     assert payload["sg_ticket_type"] == "Bug Report"
     assert payload["sg_priority"] == "High"
     assert payload["sg_status_list"] == "wtg"
+    assert payload["sg_was_error"] is True
     assert payload["description"].startswith("Technical ticket metadata")
     assert "reporter: Ada Artist" in payload["description"]
     assert 'file: "shot010.nk"' in payload["description"]
@@ -241,6 +243,20 @@ def test_semantic_type_aliases_match_live_shotgrid_values() -> None:
     assert TicketPriority.URGENT.value == "Urgent"
 
 
+def test_manual_report_can_be_marked_as_not_originating_from_an_error() -> None:
+    sg = FakeShotGrid()
+    result = create_ticket(
+        "Manual report",
+        "The user noticed an issue.",
+        was_error=False,
+        sg=sg,
+        user=_user(),
+    )
+
+    assert result.ticket["sg_was_error"] is False
+    assert sg.created[0]["sg_was_error"] is False
+
+
 @pytest.mark.parametrize(
     "recipient, expected_type, expected_id",
     [
@@ -273,6 +289,8 @@ def test_invalid_input_and_attachment_fail_before_create(tmp_path: Path) -> None
         )
     with pytest.raises(TicketValidationError, match="TicketType"):
         create_ticket("Topic", "Content", ticket_type="Bug Report", sg=sg, user=_user())
+    with pytest.raises(TicketValidationError, match="was_error"):
+        create_ticket("Topic", "Content", was_error=1, sg=sg, user=_user())
     assert sg.created == []
 
 

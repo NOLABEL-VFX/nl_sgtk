@@ -61,6 +61,8 @@ Development, or Houdini Development. Callers may alternatively pass a complete
 ShotGrid Group or HumanUser entity dictionary to `user_group`.
 Enum routing uses the stable ShotGrid Group ID and reads the current Group name
 dynamically, so a later rename does not break reporting.
+Technical reports set the Ticket's `sg_was_error` checkbox by default. Pass
+`was_error=False` when integrating a manual user-report flow.
 
 See [REPORT_API.md](REPORT_API.md) for the compact reporting API reference.
 

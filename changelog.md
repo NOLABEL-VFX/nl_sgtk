@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.2
+
+### Added
+
+- Added `was_error` to `create_ticket`, writing the new ShotGrid Ticket field
+  `sg_was_error`. Technical reports default to `True`; manual report flows can
+  pass `False`.
+
+### Compatibility
+
+- This is a backward-compatible API addition. Existing technical-report calls
+  require no changes and are marked as originating from an error.
+
 ## 0.9.1
 
 ### Fixed

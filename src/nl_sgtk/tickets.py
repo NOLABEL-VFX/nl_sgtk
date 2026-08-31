@@ -129,6 +129,7 @@ def create_ticket(
     ticket_type: TicketType = TicketType.BUG,
     priority: TicketPriority = TicketPriority.MEDIUM,
     user_group: Recipient = PipelineGroup.PIPELINE,
+    was_error: bool = True,
     attachments: Sequence[Union[str, os.PathLike[str]]] = (),
     metadata: Optional[Mapping[str, Any]] = None,
     sg: Any = None,
@@ -143,6 +144,8 @@ def create_ticket(
         ticket_type: Semantic type written to ``sg_ticket_type``.
         priority: Semantic priority written to ``sg_priority``.
         user_group: Routing enum or complete Group/HumanUser entity link.
+        was_error: Whether the Ticket originated from a technical error. Pass
+            ``False`` for a manual user report.
         attachments: Existing local files uploaded after Ticket creation.
         metadata: Structured diagnostic values rendered above ``content``.
         sg: Optional injected ShotGrid connection for tests or host reuse.
@@ -178,6 +181,7 @@ def create_ticket(
     normalized_content = _require_text(content, "content")
     normalized_type = _require_enum(ticket_type, TicketType, "ticket_type")
     normalized_priority = _require_enum(priority, TicketPriority, "priority")
+    normalized_was_error = _require_bool(was_error, "was_error")
     attachment_paths = _validate_attachments(attachments)
     current = _normalize_datetime(occurred_at)
     client, current_user = _resolve_session(sg, user)
@@ -203,6 +207,7 @@ def create_ticket(
         "sg_ticket_type": normalized_type.value,
         "sg_priority": normalized_priority.value,
         "sg_status_list": DEFAULT_TICKET_STATUS,
+        "sg_was_error": normalized_was_error,
         "addressings_to": [recipient],
         "addressings_cc": [],
     }
@@ -410,6 +415,7 @@ def _readback_ticket(client: Any, ticket_id: int) -> Mapping[str, Any]:
                 "sg_ticket_type",
                 "sg_priority",
                 "sg_status_list",
+                "sg_was_error",
                 "addressings_to",
                 "created_by",
                 "created_at",
@@ -459,6 +465,12 @@ def _require_text(value: Any, name: str, maximum: Optional[int] = None) -> str:
 def _require_enum(value: Any, enum_type: type[Enum], name: str) -> Any:
     if not isinstance(value, enum_type):
         raise TicketValidationError(f"{name} must be a {enum_type.__name__} value.")
+    return value
+
+
+def _require_bool(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise TicketValidationError(f"{name} must be a bool value.")
     return value
 
 

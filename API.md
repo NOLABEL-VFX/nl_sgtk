@@ -58,7 +58,7 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 
 Import these from `nl_sgtk` or `nl_sgtk.tickets`.
 
-- `create_ticket(topic, content, *, ticket_type=TicketType.BUG, priority=TicketPriority.MEDIUM, user_group=pipeline_group.PIPELINE, attachments=(), metadata=None, sg=None, user=None, occurred_at=None)`
+- `create_ticket(topic, content, *, ticket_type=TicketType.BUG, priority=TicketPriority.MEDIUM, user_group=pipeline_group.PIPELINE, was_error=True, attachments=(), metadata=None, sg=None, user=None, occurred_at=None)`
   - Authenticates through `sgtk_login(product="NL SGTK Technical Tickets")`
     unless a paired `sg` and current `user` are injected.
   - Creates a Ticket in Project `00_IN_HOUSE`, defaults it to status `wtg`,
@@ -78,6 +78,8 @@ Import these from `nl_sgtk` or `nl_sgtk.tickets`.
     `Houdini Development`.
   - Each configured Group ID is verified before Ticket creation. The current
     Group name is read dynamically and may change without breaking routing.
+  - Writes `was_error` to the Ticket's `sg_was_error` checkbox. Technical
+    reports default to `True`; pass `False` for a manual user report.
 - `TicketType`
   - Live ShotGrid types: `BUG`, `FEATURE`, `SOFTWARE_NEED`, and
     `DATA_WRANGLING`.

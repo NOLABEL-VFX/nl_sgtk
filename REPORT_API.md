@@ -41,6 +41,8 @@ print(result.ticket_id)
   routing.
 - `user_group` may instead be a complete ShotGrid `Group` or `HumanUser`
   dictionary containing `type` and `id`.
+- `was_error` writes the Ticket's `sg_was_error` checkbox. It defaults to
+  `True` for this technical-report API; pass `False` for a manual user report.
 - `metadata` accepts structured diagnostic values and is rendered above the
   content with reporter and UTC occurrence information.
 - `attachments` accepts existing local file paths.
