@@ -59,6 +59,8 @@ Use `pipeline_group.COMFY`, `pipeline_group.MAX`, or
 `pipeline_group.HOUDINI` to route respectively to ComfyUI Development, 3DMax
 Development, or Houdini Development. Callers may alternatively pass a complete
 ShotGrid Group or HumanUser entity dictionary to `user_group`.
+Enum routing uses the stable ShotGrid Group ID and reads the current Group name
+dynamically, so a later rename does not break reporting.
 
 See [REPORT_API.md](REPORT_API.md) for the compact reporting API reference.
 

@@ -37,7 +37,8 @@ print(result.ticket_id)
 - Priorities: `TicketPriority.LOW`, `MEDIUM`, `HIGH`, `URGENT`, `CRITICAL`.
 - Groups: `pipeline_group.PIPELINE`, `COMFY`, `MAX`, `HOUDINI`.
   They route respectively to Pipeline, ComfyUI, 3DMax, and Houdini
-  Development.
+  Development by stable ShotGrid Group ID; renaming a Group does not break
+  routing.
 - `user_group` may instead be a complete ShotGrid `Group` or `HumanUser`
   dictionary containing `type` and `id`.
 - `metadata` accepts structured diagnostic values and is rendered above the

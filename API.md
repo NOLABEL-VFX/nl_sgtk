@@ -76,7 +76,8 @@ Import these from `nl_sgtk` or `nl_sgtk.tickets`.
   - Routes: `PIPELINE` → `Pipeline Development`, `COMFY` →
     `ComfyUI Development`, `MAX` → `3DMax Development`, and `HOUDINI` →
     `Houdini Development`.
-  - Each configured Group ID and name is verified before Ticket creation.
+  - Each configured Group ID is verified before Ticket creation. The current
+    Group name is read dynamically and may change without breaking routing.
 - `TicketType`
   - Live ShotGrid types: `BUG`, `FEATURE`, `SOFTWARE_NEED`, and
     `DATA_WRANGLING`.

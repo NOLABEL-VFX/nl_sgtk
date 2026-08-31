@@ -188,7 +188,7 @@ def test_enum_routes_create_for_the_expected_group(
     ]
 
 
-def test_enum_route_rejects_a_group_whose_name_no_longer_matches(
+def test_enum_route_accepts_a_group_whose_name_has_changed(
     monkeypatch: Any,
 ) -> None:
     sg = FakeShotGrid()
@@ -200,11 +200,33 @@ def test_enum_route_rejects_a_group_whose_name_no_longer_matches(
         return original_find_one(entity_type, filters, fields)
 
     monkeypatch.setattr(sg, "find_one", renamed_group)
-    with pytest.raises(TicketRoutingError, match="3DMax Development"):
+    create_ticket(
+        "Topic",
+        "Content",
+        user_group=PipelineGroup.MAX,
+        sg=sg,
+        user=_user(),
+    )
+    assert sg.created[0]["addressings_to"] == [
+        {"type": "Group", "id": 1523, "name": "Unexpected Group"}
+    ]
+
+
+def test_enum_route_rejects_a_missing_group_id(monkeypatch: Any) -> None:
+    sg = FakeShotGrid()
+    original_find_one = sg.find_one
+
+    def missing_group(entity_type: str, filters: Any, fields: Any) -> Any:
+        if entity_type == "Group" and filters[0][2] == 1525:
+            return None
+        return original_find_one(entity_type, filters, fields)
+
+    monkeypatch.setattr(sg, "find_one", missing_group)
+    with pytest.raises(TicketRoutingError, match="Group 1525"):
         create_ticket(
             "Topic",
             "Content",
-            user_group=PipelineGroup.MAX,
+            user_group=PipelineGroup.COMFY,
             sg=sg,
             user=_user(),
         )

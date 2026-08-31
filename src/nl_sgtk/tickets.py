@@ -15,13 +15,9 @@ from typing import Any, Mapping, Optional, Sequence, Tuple, Union
 DEFAULT_PROJECT_ID = 750
 DEFAULT_PROJECT_NAME = "00_IN_HOUSE"
 PIPELINE_GROUP_ID = 302
-PIPELINE_GROUP_NAME = "Pipeline Development"
 MAX_GROUP_ID = 1523
-MAX_GROUP_NAME = "3DMax Development"
 HOUDINI_GROUP_ID = 1524
-HOUDINI_GROUP_NAME = "Houdini Development"
 COMFY_GROUP_ID = 1525
-COMFY_GROUP_NAME = "ComfyUI Development"
 DEFAULT_TICKET_STATUS = "wtg"
 
 
@@ -174,8 +170,8 @@ def create_ticket(
     Notes:
         - Attachment uploads are non-atomic. Never blindly retry after
           ``TicketAttachmentError``; use its ``ticket_id`` first.
-        - Enum routes are validated against their expected ShotGrid Group ID
-          and name before the Ticket is created.
+        - Enum routes are validated against their stable ShotGrid Group ID
+          before the Ticket is created. Group names may change.
     """
 
     normalized_topic = _require_text(topic, "topic", maximum=255)
@@ -324,23 +320,25 @@ def _resolve_session(
 def _resolve_recipient(client: Any, recipient: Recipient) -> Mapping[str, Any]:
     if isinstance(recipient, PipelineGroup):
         if recipient is PipelineGroup.PIPELINE:
-            group_id, group_name = PIPELINE_GROUP_ID, PIPELINE_GROUP_NAME
+            group_id = PIPELINE_GROUP_ID
         elif recipient is PipelineGroup.COMFY:
-            group_id, group_name = COMFY_GROUP_ID, COMFY_GROUP_NAME
+            group_id = COMFY_GROUP_ID
         elif recipient is PipelineGroup.MAX:
-            group_id, group_name = MAX_GROUP_ID, MAX_GROUP_NAME
+            group_id = MAX_GROUP_ID
         elif recipient is PipelineGroup.HOUDINI:
-            group_id, group_name = HOUDINI_GROUP_ID, HOUDINI_GROUP_NAME
+            group_id = HOUDINI_GROUP_ID
         else:  # pragma: no cover - defensive against runtime enum mutation
             raise TicketRoutingError(f"Unsupported PipelineGroup: {recipient!r}.")
-        return _require_named_entity(
-            client,
-            "Group",
-            group_id,
-            group_name,
-            "code",
-            TicketRoutingError,
-        )
+        entity = client.find_one("Group", [["id", "is", group_id]], ["code"])
+        if not entity:
+            raise TicketRoutingError(
+                f"Configured Group {group_id} does not exist or is inaccessible."
+            )
+        return {
+            "type": "Group",
+            "id": group_id,
+            "name": entity.get("code"),
+        }
     if not isinstance(recipient, Mapping):
         raise TicketRoutingError(
             "user_group must be a PipelineGroup or Group/HumanUser entity mapping."

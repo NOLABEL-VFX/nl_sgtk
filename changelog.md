@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.1
+
+### Fixed
+
+- Changed enum-based Ticket routing to validate only the stable ShotGrid Group
+  ID. Group names are now read dynamically, so renaming a configured
+  Development Group does not prevent technical reports from being created.
+
+### Compatibility
+
+- This is a backward-compatible routing fix. Enum names, Group IDs, function
+  signatures, and caller-supplied Group/HumanUser routing remain unchanged.
+
 ## 0.9.0
 
 ### Added
