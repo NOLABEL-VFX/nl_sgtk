@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.11.0
+
+### Added
+
+- Added metadata schema version 2 for technical Tickets. Stable error identity
+  is stored separately from affected application, Python, platform, and package
+  versions in `sg_metadata_json`.
+- Added synchronization of ShotGrid's existing `sg_occurances` field with the
+  canonical JSON `occurrence_count`.
+- Synchronized the runtime module, compatibility shim, and package metadata on
+  version 0.11.0 so reported `nl_sgtk` versions are reliable.
+
+### Changed
+
+- Error deduplication now matches the same reporter and normalized error
+  code/signature while excluding volatile timestamps, elapsed durations,
+  memory addresses, log sizes, and other per-occurrence telemetry. Repeated
+  Nuke `AbnormalExit` reports no longer receive different identities merely
+  because they arrived seconds apart.
+- Session IDs no longer merge different errors from one application session.
+- Correlated occurrences merge their observed version sets and continue to add
+  a linked Note with the fresh diagnostic attachments.
+- Active canonical Tickets are preferred over resolved legacy duplicates. If
+  the only canonical match is Resolved or Closed, a verified recurrence
+  reopens it to Open instead of creating a new Ticket or leaving it closed.
+
+### Compatibility
+
+- This is a backward-compatible user-facing capability update. Existing
+  `create_ticket` calls and arguments are unchanged. New Ticket metadata uses
+  schema version 2; existing schema version 1 records remain readable and have
+  their stable identity reconstructed from the stored metadata when matched.
+- The package minor version moves from 0.10.0 to 0.11.0.
+
 ## 0.10.0
 
 ### Added

@@ -80,10 +80,18 @@ Import these from `nl_sgtk` or `nl_sgtk.tickets`.
     Group name is read dynamically and may change without breaking routing.
   - Writes `was_error` to the Ticket's `sg_was_error` checkbox. Technical
     reports default to `True`; pass `False` for a manual user report.
-  - Stores redacted canonical correlation data in `sg_metadata_json`.
-  - Matching open error Tickets (same non-empty `session_id` or deterministic
-    error fingerprint) receive a linked Note and Note attachments instead of
-    another Ticket. Pass `deduplicate=False` to force creation.
+  - Stores versioned, redacted canonical correlation data in
+    `sg_metadata_json`. Schema version 2 separates stable error identity from
+    volatile timestamps, durations, log sizes, host telemetry, and package
+    versions; affected application/package versions are tracked separately.
+  - Initializes ShotGrid's existing `sg_occurances` number field to 1 and
+    increments it with `occurrence_count` for every correlated report.
+  - Matching error Tickets from the same reporter with the same stable error
+    code/signature receive a linked Note and Note attachments instead of
+    another Ticket. Active canonicals are preferred over resolved duplicates;
+    a recurring Resolved or Closed canonical is reopened to Open. A session ID
+    narrows correlation but never merges different error signatures. Pass
+    `deduplicate=False` to force creation.
   - `TicketResult.created`, `TicketResult.note`, and `TicketResult.note_id`
     identify correlated occurrences.
 - `TicketType`

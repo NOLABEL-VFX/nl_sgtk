@@ -63,6 +63,10 @@ Enum routing uses the stable ShotGrid Group ID and reads the current Group name
 dynamically, so a later rename does not break reporting.
 Technical reports set the Ticket's `sg_was_error` checkbox by default. Pass
 `was_error=False` when integrating a manual user-report flow.
+Repeated errors from the same reporter are correlated by stable error identity,
+with per-occurrence telemetry ignored for matching. The Ticket's
+`sg_occurances` value is incremented and `sg_metadata_json` retains the affected
+application and package versions.
 
 See [REPORT_API.md](REPORT_API.md) for the compact reporting API reference.
 

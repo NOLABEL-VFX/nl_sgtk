@@ -57,6 +57,7 @@ class FakeShotGrid:
             "sg_status_list",
             "sg_was_error",
             "sg_metadata_json",
+            "sg_occurances",
             "addressings_to",
             "addressings_cc",
         )
@@ -184,6 +185,8 @@ def test_pipeline_enum_creates_verified_ticket_with_metadata_and_attachment(
     assert payload["sg_was_error"] is True
     stored = __import__("json").loads(payload["sg_metadata_json"])
     assert stored["occurrence_count"] == 1
+    assert stored["schema_version"] == 2
+    assert payload["sg_occurances"] == 1
     assert len(stored["error_fingerprint"]) == 64
     assert payload["description"].startswith("Technical ticket metadata")
     assert "reporter: Ada Artist" in payload["description"]
@@ -280,28 +283,48 @@ def test_manual_report_can_be_marked_as_not_originating_from_an_error() -> None:
     assert sg.created[0]["sg_was_error"] is False
 
 
-def test_matching_session_adds_note_and_uploads_to_note(tmp_path: Path) -> None:
+def test_matching_stable_error_adds_note_and_uploads_to_note(tmp_path: Path) -> None:
     import json
 
     attachment = tmp_path / "repeat.log"
     attachment.write_text("trace", encoding="utf-8")
     sg = FakeShotGrid()
+    occurred = datetime(2026, 8, 29, 20, 0, tzinfo=timezone.utc)
+    first_metadata = {
+        "product": "NL Nuke",
+        "elapsed_since_startup_seconds": 10,
+        "last_incident": {"exception_type": "AbnormalExit", "message": "Nuke session ended without finalization"},
+        "packages": {"nl_sgtk": {"version": "0.9.2"}},
+    }
+    first = create_ticket(
+        "[NL Nuke 2.0.0.dev3] AbnormalExit (1 errors)",
+        "first occurrence",
+        metadata=first_metadata,
+        occurred_at=occurred,
+        sg=sg,
+        user=_user(),
+    )
+    original = dict(first.ticket)
+    original["sg_metadata_json"] = sg.created[0]["sg_metadata_json"]
+    sg.created.clear()
     sg.existing_tickets = [{
         "type": "Ticket",
         "id": 9001,
         "title": "Original",
         "sg_status_list": "wtg",
-        "sg_metadata_json": json.dumps({
-            "session_id": "nuke-session-42",
-            "error_fingerprint": "different",
-            "occurrence_count": 1,
-        }),
+        "created_by": _user(),
+        "sg_metadata_json": original["sg_metadata_json"],
     }]
 
     result = create_ticket(
-        "Another crash",
-        "A second error in the same session.",
-        session_id="nuke-session-42",
+        "[NL Nuke 2.0.0.dev4] AbnormalExit (1 errors)",
+        "A second occurrence with different volatile telemetry.",
+        metadata={
+            **first_metadata,
+            "elapsed_since_startup_seconds": 9999,
+            "failure_detected_at": "2026-08-30T10:00:00Z",
+            "packages": {"nl_sgtk": {"version": "0.10.0"}},
+        },
         attachments=[attachment],
         sg=sg,
         user=_user(),
@@ -314,6 +337,83 @@ def test_matching_session_adds_note_and_uploads_to_note(tmp_path: Path) -> None:
     assert sg.created[0]["project"]["id"] == 750
     assert sg.uploaded == [str(attachment.resolve())]
     assert json.loads(sg.updated[0]["sg_metadata_json"])["occurrence_count"] == 2
+    assert sg.updated[0]["sg_occurances"] == 2
+    versions = json.loads(sg.updated[0]["sg_metadata_json"])["affected_versions"]
+    assert versions["nl_sgtk"] == ["0.10.0", "0.9.2"]
+
+
+def test_resolved_schema2_canonical_is_preferred_and_reopened() -> None:
+    import json
+
+    sg = FakeShotGrid()
+    metadata = {
+        "product": "NL Nuke",
+        "last_incident": {
+            "action": "process",
+            "exception_type": "AbnormalExit",
+            "message": "Nuke session ended without finalization",
+        },
+    }
+    first = create_ticket(
+        "[NL Nuke] AbnormalExit (1 errors)",
+        "first occurrence",
+        metadata=metadata,
+        sg=sg,
+        user=_user(),
+    )
+    canonical_metadata = sg.created[0]["sg_metadata_json"]
+    legacy_metadata = json.loads(canonical_metadata)
+    legacy_metadata["schema_version"] = 1
+    legacy_metadata["error_fingerprint"] = "legacy-volatile-fingerprint"
+    sg.created.clear()
+    sg.existing_tickets = [
+        {
+            "type": "Ticket",
+            "id": 9002,
+            "title": "newer resolved legacy duplicate",
+            "sg_status_list": "res",
+            "created_by": _user(),
+            "sg_metadata_json": json.dumps(legacy_metadata),
+        },
+        {
+            **first.ticket,
+            "id": 9001,
+            "title": "schema-v2 canonical",
+            "sg_status_list": "res",
+            "created_by": _user(),
+            "sg_metadata_json": canonical_metadata,
+        },
+    ]
+
+    result = create_ticket(
+        "[NL Nuke] AbnormalExit (1 errors)",
+        "recurrence after resolution",
+        metadata=metadata,
+        sg=sg,
+        user=_user(),
+    )
+
+    assert result.ticket_id == 9001
+    assert result.ticket["sg_status_list"] == "opn"
+    assert sg.updated[0]["sg_status_list"] == "opn"
+
+
+def test_same_session_does_not_merge_different_error_codes() -> None:
+    import json
+
+    sg = FakeShotGrid()
+    sg.existing_tickets = [{
+        "type": "Ticket", "id": 9001, "created_by": _user(),
+        "sg_metadata_json": json.dumps({
+            "session_id": "same-session", "error_fingerprint": "different",
+            "reporter": {"type": "HumanUser", "id": 484},
+        }),
+    }]
+    result = create_ticket(
+        "TypeError", "different error", session_id="same-session",
+        sg=sg, user=_user(),
+    )
+    assert result.created is True
 
 
 @pytest.mark.parametrize(

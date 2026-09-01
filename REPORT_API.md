@@ -49,10 +49,15 @@ print(result.ticket_id)
   copy is stored in the Ticket's `sg_metadata_json` field.
 - `session_id` accepts a stable, opaque application-session identifier. Do not
   pass authentication tokens or session URLs.
-- Error reports are deduplicated by default. When an open Ticket in
-  `00_IN_HOUSE` has the same non-empty session ID or deterministic error
-  fingerprint, the occurrence becomes a linked Note and new attachments are
-  uploaded to that Note. Pass `deduplicate=False` to force a new Ticket.
+- Error reports are deduplicated by default. When a Ticket in `00_IN_HOUSE`
+  has the same reporter and stable error code/signature, the
+  occurrence becomes a linked Note and new attachments are uploaded to that
+  Note. Volatile telemetry and package versions do not split a recurring
+  incident; `sg_metadata_json` tracks affected versions separately. A session
+  ID never merges different error signatures. `sg_occurances` and the JSON
+  `occurrence_count` are incremented together. A recurring Resolved or Closed
+  canonical Ticket is reopened to Open. Pass `deduplicate=False` to force a
+  new Ticket.
 - `attachments` accepts existing local file paths.
 - Tests or host applications may inject paired `sg` and `user` arguments;
   otherwise the API calls `sgtk_login()` for the current user.

@@ -20,6 +20,10 @@ MAX_GROUP_ID = 1523
 HOUDINI_GROUP_ID = 1524
 COMFY_GROUP_ID = 1525
 DEFAULT_TICKET_STATUS = "wtg"
+REOPENED_TICKET_STATUS = "opn"
+RESOLVED_TICKET_STATUSES = frozenset({"res", "clsd"})
+METADATA_SCHEMA_VERSION = 2
+OCCURRENCES_FIELD = "sg_occurances"  # ShotGrid's existing field code spelling.
 
 
 class PipelineGroup(str, Enum):
@@ -256,6 +260,7 @@ def create_ticket(
         "sg_status_list": DEFAULT_TICKET_STATUS,
         "sg_was_error": normalized_was_error,
         "sg_metadata_json": json.dumps(metadata_json, ensure_ascii=False, sort_keys=True),
+        OCCURRENCES_FIELD: 1,
         "addressings_to": [recipient],
         "addressings_cc": [],
     }
@@ -304,25 +309,101 @@ def _build_metadata_json(
     occurred_at: datetime,
 ) -> dict[str, Any]:
     safe_metadata = _sanitize_metadata_value(metadata or {})
-    fingerprint_source = {
-        "topic": topic.casefold(),
-        "content": _redact_secrets(content).casefold(),
-        "metadata": safe_metadata,
-    }
+    correlation = _build_correlation_data(topic, content, safe_metadata, user)
     fingerprint = hashlib.sha256(
-        json.dumps(fingerprint_source, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        json.dumps(correlation, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
     occurred = occurred_at.isoformat()
     return {
-        "schema_version": 1,
+        "schema_version": METADATA_SCHEMA_VERSION,
         "session_id": session_id,
         "error_fingerprint": fingerprint,
+        "correlation": correlation,
+        "affected_versions": _extract_versions(safe_metadata),
         "reporter": {"type": user.get("type"), "id": user.get("id")},
         "first_occurred_at": occurred,
         "last_occurred_at": occurred,
         "occurrence_count": 1,
         "metadata": safe_metadata,
     }
+
+
+def _build_correlation_data(
+    topic: str,
+    content: str,
+    metadata: Mapping[str, Any],
+    user: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return stable error identity while excluding per-occurrence telemetry."""
+
+    incident = metadata.get("last_incident")
+    incident = incident if isinstance(incident, Mapping) else {}
+    exception_type = str(incident.get("exception_type") or "").strip().casefold()
+    message = _normalize_error_text(str(incident.get("message") or ""))
+    action = _normalize_error_text(str(incident.get("action") or ""))
+    traceback = str(incident.get("traceback") or "")
+    traceback_tail = _normalize_traceback(traceback)
+    error_code = str(
+        incident.get("error_code")
+        or metadata.get("error_code")
+        or exception_type
+        or _topic_error_type(topic)
+    ).strip().casefold()
+    if not any((error_code, message, action, traceback_tail)):
+        # Generic callers still receive deterministic correlation, but only
+        # after volatile timestamp-like values have been normalized.
+        message = _normalize_error_text(_redact_secrets(content))
+    return {
+        "reporter": {"type": user.get("type"), "id": user.get("id")},
+        "product": str(metadata.get("product") or "").strip().casefold(),
+        "error_code": error_code,
+        "exception_type": exception_type,
+        "message": message,
+        "action": action,
+        "traceback": traceback_tail,
+    }
+
+
+def _topic_error_type(topic: str) -> str:
+    match = re.search(r"\]\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\(", topic)
+    return match.group(1) if match else topic
+
+
+def _normalize_error_text(value: str) -> str:
+    text = _redact_secrets(value).casefold()
+    text = re.sub(r"\b0x[0-9a-f]+\b", "<address>", text)
+    text = re.sub(r"\b\d{4}-\d\d-\d\d[t ]\d\d:\d\d:\d\d(?:\.\d+)?(?:z|[+-]\d\d:\d\d)?\b", "<timestamp>", text)
+    text = re.sub(r"\b\d+(?:\.\d+)?\s*(?:seconds?|ms|bytes?)\b", "<value>", text)
+    return " ".join(text.split())
+
+
+def _normalize_traceback(value: str) -> str:
+    lines = []
+    for raw_line in value.splitlines():
+        line = raw_line.strip()
+        if not line or line.casefold().startswith("traceback ("):
+            continue
+        line = re.sub(r'File "[^"]+", line \d+', 'File "<path>", line <n>', line)
+        lines.append(_normalize_error_text(line))
+    return "\n".join(lines[-12:])
+
+
+def _extract_versions(metadata: Mapping[str, Any]) -> dict[str, list[str]]:
+    versions: dict[str, set[str]] = {}
+    packages = metadata.get("packages")
+    if isinstance(packages, Mapping):
+        for name, details in packages.items():
+            if isinstance(details, Mapping) and details.get("version"):
+                versions.setdefault(str(name), set()).add(str(details["version"]))
+    runtime = metadata.get("incident_runtime")
+    if isinstance(runtime, Mapping):
+        for key, value in runtime.items():
+            if value is not None and ("version" in str(key).casefold() or key in {"python", "platform"}):
+                versions.setdefault(str(key), set()).add(str(value))
+    for key in ("nuke", "python", "platform"):
+        if metadata.get(key) is not None:
+            versions.setdefault(key, set()).add(str(metadata[key]))
+    return {key: sorted(values) for key, values in sorted(versions.items())}
 
 
 def _sanitize_metadata_value(value: Any, key: str = "") -> Any:
@@ -355,10 +436,9 @@ def _find_correlated_ticket(
             [
                 ["project", "is", project],
                 ["sg_was_error", "is", True],
-                ["sg_status_list", "is_not", "res"],
                 ["sg_metadata_json", "is_not", None],
             ],
-            ["title", "sg_metadata_json", "sg_status_list"],
+            ["title", "sg_metadata_json", "sg_status_list", "created_by"],
             order=[{"field_name": "created_at", "direction": "desc"}],
             limit=100,
         )
@@ -366,16 +446,56 @@ def _find_correlated_ticket(
         raise TicketReadbackError(0, "Existing Tickets could not be checked for duplicates.") from exc
     wanted_session = metadata_json.get("session_id")
     wanted_fingerprint = metadata_json.get("error_fingerprint")
+    wanted_reporter = metadata_json.get("reporter")
+    matches = []
     for candidate in candidates or ():
         try:
             stored = json.loads(candidate.get("sg_metadata_json") or "{}")
         except (TypeError, ValueError):
             continue
-        same_session = bool(wanted_session and stored.get("session_id") == wanted_session)
-        same_error = bool(wanted_fingerprint and stored.get("error_fingerprint") == wanted_fingerprint)
-        if same_session or same_error:
+        stored_reporter = stored.get("reporter") or candidate.get("created_by") or {}
+        same_reporter = (
+            stored_reporter.get("type") == wanted_reporter.get("type")
+            and stored_reporter.get("id") == wanted_reporter.get("id")
+        )
+        same_session = bool(
+            wanted_session
+            and stored.get("session_id") == wanted_session
+            and stored.get("error_fingerprint") == wanted_fingerprint
+        )
+        stored_fingerprint = stored.get("error_fingerprint")
+        if stored.get("schema_version") != METADATA_SCHEMA_VERSION:
+            legacy_metadata = stored.get("metadata")
+            if isinstance(legacy_metadata, Mapping):
+                legacy_correlation = _build_correlation_data(
+                    str(candidate.get("title") or ""),
+                    "",
+                    legacy_metadata,
+                    stored_reporter,
+                )
+                stored_fingerprint = hashlib.sha256(
+                    json.dumps(
+                        legacy_correlation, ensure_ascii=False, sort_keys=True
+                    ).encode("utf-8")
+                ).hexdigest()
+        same_error = bool(wanted_fingerprint and stored_fingerprint == wanted_fingerprint)
+        if same_reporter and (same_session or same_error):
+            matches.append((candidate, stored))
+    if not matches:
+        return None
+    for candidate, stored in matches:
+        if (
+            candidate.get("sg_status_list") not in RESOLVED_TICKET_STATUSES
+            and stored.get("schema_version") == METADATA_SCHEMA_VERSION
+        ):
             return candidate
-    return None
+    for candidate, _stored in matches:
+        if candidate.get("sg_status_list") not in RESOLVED_TICKET_STATUSES:
+            return candidate
+    for candidate, stored in matches:
+        if stored.get("schema_version") == METADATA_SCHEMA_VERSION:
+            return candidate
+    return matches[0][0]
 
 
 def _append_occurrence(
@@ -388,6 +508,32 @@ def _append_occurrence(
     attachment_paths: Sequence[str],
 ) -> TicketResult:
     ticket_id = int(ticket["id"])
+    stored = json.loads(ticket.get("sg_metadata_json") or "{}")
+    stored["last_occurred_at"] = occurrence["last_occurred_at"]
+    stored["occurrence_count"] = int(stored.get("occurrence_count") or 1) + 1
+    stored["schema_version"] = METADATA_SCHEMA_VERSION
+    stored["affected_versions"] = _merge_versions(
+        stored.get("affected_versions"), occurrence.get("affected_versions")
+    )
+    ticket_update = {
+        "sg_metadata_json": json.dumps(stored, ensure_ascii=False, sort_keys=True),
+        OCCURRENCES_FIELD: stored["occurrence_count"],
+    }
+    if ticket.get("sg_status_list") in RESOLVED_TICKET_STATUSES:
+        ticket_update["sg_status_list"] = REOPENED_TICKET_STATUS
+    update_schema = _validate_editable_fields(client, "Ticket", ticket_update)
+    if "sg_status_list" in ticket_update:
+        valid_statuses = (
+            update_schema["sg_status_list"]
+            .get("properties", {})
+            .get("valid_values", {})
+            .get("value")
+        )
+        if valid_statuses and REOPENED_TICKET_STATUS not in valid_statuses:
+            raise TicketSchemaError(
+                "Resolved Ticket matched, but the live schema does not allow "
+                f"reopening it to {REOPENED_TICKET_STATUS!r}."
+            )
     note_payload = {
         "subject": f"Repeated occurrence: {topic}",
         "content": description,
@@ -401,13 +547,8 @@ def _append_occurrence(
     except Exception as exc:
         raise TicketNoteError(ticket_id, f"Ticket {ticket_id} matched, but its Note could not be created.") from exc
 
-    stored = json.loads(ticket.get("sg_metadata_json") or "{}")
-    stored["last_occurred_at"] = occurrence["last_occurred_at"]
-    stored["occurrence_count"] = int(stored.get("occurrence_count") or 1) + 1
     try:
-        client.update("Ticket", ticket_id, {
-            "sg_metadata_json": json.dumps(stored, ensure_ascii=False, sort_keys=True)
-        })
+        client.update("Ticket", ticket_id, ticket_update)
     except Exception as exc:
         raise TicketNoteError(ticket_id, f"Note {note_id} exists, but Ticket metadata could not be updated.") from exc
 
@@ -423,7 +564,7 @@ def _append_occurrence(
                 f"Note {note_id} exists, but attachment upload failed for {attachment_path!r}.",
             ) from exc
     refreshed = dict(ticket)
-    refreshed["sg_metadata_json"] = json.dumps(stored, ensure_ascii=False, sort_keys=True)
+    refreshed.update(ticket_update)
     return TicketResult(
         ticket=refreshed,
         note={"type": "Note", "id": note_id},
@@ -431,6 +572,17 @@ def _append_occurrence(
         attachment_ids=tuple(uploaded_ids),
         attachment_paths=tuple(uploaded_paths),
     )
+
+
+def _merge_versions(existing: Any, incoming: Any) -> dict[str, list[str]]:
+    merged: dict[str, set[str]] = {}
+    for source in (existing, incoming):
+        if not isinstance(source, Mapping):
+            continue
+        for key, values in source.items():
+            items = values if isinstance(values, (list, tuple, set)) else [values]
+            merged.setdefault(str(key), set()).update(str(item) for item in items if item is not None)
+    return {key: sorted(values) for key, values in sorted(merged.items())}
 
 
 def format_ticket_content(
