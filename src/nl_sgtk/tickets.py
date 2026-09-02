@@ -403,6 +403,15 @@ def _extract_versions(metadata: Mapping[str, Any]) -> dict[str, list[str]]:
     for key in ("nuke", "python", "platform"):
         if metadata.get(key) is not None:
             versions.setdefault(key, set()).add(str(metadata[key]))
+    application = metadata.get("application")
+    if isinstance(application, Mapping):
+        name = str(application.get("name") or "application").strip().casefold()
+        version = application.get("version")
+        build = application.get("build")
+        if version is not None:
+            versions.setdefault(name, set()).add(str(version))
+        if build is not None:
+            versions.setdefault(name + ".build", set()).add(str(build))
     return {key: sorted(values) for key, values in sorted(versions.items())}
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0
+
+### Added
+
+- Index standardized diagnostic application version and build metadata in
+  `affected_versions`, including host applications such as Nuke and 3ds Max.
+
 ## 0.11.0
 
 ### Added

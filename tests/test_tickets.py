@@ -18,6 +18,7 @@ from nl_sgtk.tickets import (
     TicketSchemaError,
     TicketType,
     TicketValidationError,
+    _extract_versions,
     create_ticket,
     pipeline_group,
 )
@@ -518,3 +519,20 @@ def test_default_path_uses_current_user_login(monkeypatch: Any) -> None:
     result = create_ticket("Topic", "Content")
     assert result.ticket_id == 9001
     assert calls == ["NL SGTK Technical Tickets"]
+
+
+def test_extract_versions_indexes_application_version_and_build() -> None:
+    versions = _extract_versions(
+        {
+            "application": {
+                "name": "3ds Max",
+                "version": "2025.3",
+                "build": "25.3.0.1234",
+            }
+        }
+    )
+
+    assert versions == {
+        "3ds max": ["2025.3"],
+        "3ds max.build": ["25.3.0.1234"],
+    }
