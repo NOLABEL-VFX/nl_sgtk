@@ -1,5 +1,37 @@
 # nl_sgtk API Reference
 
+The current major release series is `1.0.0`. Versions use
+`Major.Minor.Fix.build`: local builds advance the fourth component, while a
+semantic target is selected once before release commit/push. The numeric
+update checker treats an omitted build as zero, so `1.0.0` and `1.0.0.0`
+compare equally. The provider protocol remains 1.0. See sibling
+`nl_core/VERSIONING.md` for coordinated build commands.
+
+## Publication manifests (0.16)
+
+`ShotgunPublish.publish(..., registration="auto")` now completes geometry-only
+exports without a preview locally through Core's Task manifest index. The
+result has `local_only=True`, `manifest_path` and the publication UUID, with no
+Shotgun Version `id`. Use `registration="tracker"` to explicitly create a
+Version, or `registration="local"` for other local exports. Local index failure
+raises; it never silently creates a Version. Core configuration is required.
+SGTK construction still authenticates; use Core for fully offline publishing.
+
+Tracker publication writes a UUID JSON mirror using `Version.sg__publish_uuid`.
+Direct mirror failures are logged for repair with
+`nl_core.open_session(task_id).publish.manifests.sync()`. Core-provider publishing
+uses its durable same-UUID outbox. No PublishedFile creation is introduced.
+
+`NlSgtkProvider.publish_manifest_snapshots(context)` reads normalized Task
+Versions for Core. `version_snapshot()` in `nl_sgtk.publish_manifests` maps
+frames/movie/geometry/script source roles and supplies stable UUIDs for legacy
+Versions without one. `retrieve_version_info(resolve_dependencies=False)`
+avoids tracker dependency lookup during local-only completion.
+
+Existing `export_to_json()` exports an import payload to a caller-selected
+path and records it in the machine-local SQLite log. It is unchanged and does
+not itself constitute a completed shared local publication.
+
 This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 
 > Maintenance rule: whenever a public API function is added, removed, renamed, or its behavior/signature changes, this file must be updated in the same change.
@@ -167,6 +199,52 @@ entry-point group.
 
 - `fetch_task(task_id)` uses `get_task_context()`, hydrates the Step short code,
   and returns the source Task payload expected by `nl_core`.
+- `resolve_launch_source(entity_type: str, entity_id: int,
+  source_fields: Sequence[str] = ('sg_path_to_script',),
+  application_version_field: str = '') -> Mapping[str, Any]` reads exactly
+  one `Version` by ID. Other record types raise `ValueError`; a missing Version
+  raises `LookupError`. Configured source and application-version fields must
+  exist in the Version schema, otherwise `ValueError` names the missing fields.
+  A schema read failure raises `RuntimeError` with the original cause.
+  Values must be text or null; omitted response fields raise `ValueError`.
+  Publisher path fields (`sg_path_to_script`, `sg_path_to_geometry`,
+  `sg_path_to_movie`, `sg_path_to_frames`) use the documented publisher
+  semicolon-list encoding and are split in configured field/path order.
+  Custom source fields each supply one path, preserving literal semicolons
+  and other command-like characters. Surrounding whitespace and empty entries
+  are removed. The publisher encoding cannot represent literal semicolons
+  inside a path; use a custom single-path field for such filenames.
+  Null or blank values
+  produce no sources; an empty `source_fields` sequence requests context only.
+  Duplicate field names are read once. Paths are not checked on disk.
+  The returned mapping contains:
+
+  ```python
+  {
+      "record_type": "Version",
+      "record_id": 123,
+      "project": {"type": "Project", "id": 1},
+      "entity": {"type": "Shot", "id": 2},
+      "task": {"type": "Task", "id": 3},  # {} when unlinked
+      "sources": [{"path": "//server/show/comp.nk",
+                   "field": "sg_path_to_script"}],
+      "application_version": "",
+  }
+  ```
+
+  Links retain only type and ID. Missing/malformed Project or entity links,
+  malformed linked Tasks, and invalid IDs raise `ValueError`. Application
+  version stays empty unless its field is explicitly configured and populated.
+  There is no inference from Version code, no implicit movie/frame fallback,
+  and no search for a latest Version.
+- `list_launch_tasks(entity_type: str, entity_id: int)
+  -> List[Mapping[str, Any]]` queries Tasks linked to exactly the supplied
+  entity type and ID, normally the `entity` returned above (Shot or Asset),
+  **not** the Version's `record_type` and `record_id`. Each result contains
+  `id`, `name` (Task content), `project` and `entity` (type/ID links). Results
+  are ordered by content then ID; no matches return `[]`. Other linked entity
+  types are supported with the same exact-link filter. Invalid IDs or missing
+  required context links raise `ValueError`.
 - `find_publishes(context, output)` queries registered `Version` and
   `PublishedFile` rows for the supplied Task before local fallback is
   considered. Partial Versions still protect version allocation.
@@ -179,3 +257,52 @@ entry-point group.
 
 The provider keeps ShotGrid imports and authentication inside `nl_sgtk`; the
 `nl_core` package depends only on its structural provider protocol.
+The two launch APIs only read ShotGrid data and return plain mappings for
+Hub/core's generic launch models; they do not launch applications or write
+tracker records. Tests supply a fake connection without authentication.
+# DCC launcher provider API
+
+`NlSgtkProvider` exposes `current_user()`, `resolve_launch_project()`,
+`list_launch_projects()`, `resolve_launch_context()`, `list_launch_tasks()`, and
+`list_task_workfiles()` for trusted NL Hub launch routing.
+`resolve_launch_project(project_id)` requests only the Project name, code and
+root needed for menu-time software policy. LocalStorage mappings are cached by
+the provider. `list_launch_projects()` returns the same minimal fields for all
+active non-template Projects so NL Hub can warm its policy cache in one query.
+These methods return plain mappings and never accept executable,
+environment, or command overrides from browser actions.
+# Version publication and relationship provider (0.15)
+
+The current publish contract is output plus Version creation. `ShotgunPublish`
+classifies files into `sg_path_to_frames`, `sg_path_to_movie`,
+`sg_path_to_geometry` and `sg_path_to_script`; preview upload is explicit.
+`published_files_enabled()` returns false, including development projects.
+PublishedFile migration remains deferred. Existing records are not deleted.
+
+`NlSgtkProvider.register_publish(context, request)` reuses the publish UUID
+on retry. Core owns reservation/outbox orchestration; SGTK owns Version fields,
+authentication and upload. Each normal calling thread receives its own cached
+Shotgun client. Explicit private client injection remains a compatibility path
+and must not be shared concurrently by callers.
+
+`find_entity_relationships(entity, relationship_types)` returns direct links
+with `entity`, `relationship_type`, `direction` and `source`. Sequence `shots`
+and `sg_scenes` are distinct relations; querying Shots never expands Scenes.
+Studio-specific membership and dependency fields remain in this adapter.
+`find_references(context, request)` supplies Version-backed `version` and
+`publish` references. With a Step it queries that Step on the same entity;
+without a Step it queries the session's exact Task. Project/entity filters are
+always present. Source-path fields and numeric version ordering are retained.
+Application descriptors are not generated by this provider.
+# Publication metadata and vendor attribution (0.17)
+
+Core publication requests accept exact dependency links and JSON metadata.
+The provider maps dependencies to `Version.sg_dependiencies`, metadata to
+`sg_files_metadata`, and mirrors metadata in local UUID manifests. The shared
+`colorspace` metadata key allows application adapters to restore source color.
+`metadata.vendor` is validated through `ShotgunPublish.set_vendor_by_data()`:
+only a Group with a VENDOR tag may become `Version.user`. Geometry-only local
+publications still do not require a Version or tracker upload.
+`publish(upload_preview=False)` validates context and files without requiring a
+preview. Image/script registrations can therefore complete before review media
+is available. The default still requires and uploads a preview.

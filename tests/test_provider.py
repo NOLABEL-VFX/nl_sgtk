@@ -6,6 +6,27 @@ from typing import Any, Dict, List, Mapping, Optional
 from nl_sgtk.provider import NlSgtkProvider
 
 
+def test_connections_are_isolated_between_worker_threads(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    import nl_sgtk.nl_sgtk as api
+
+    monkeypatch.setattr(api, "sgtk_login",
+                        lambda **kwargs: (object(), {"id": 1}))
+    provider = NlSgtkProvider()
+    barrier = Barrier(2)
+
+    def connect():
+        first = provider._connection()[0]
+        barrier.wait(timeout=5)
+        assert provider._connection()[0] is first
+        return first
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = list(pool.map(lambda _: connect(), range(2)))
+    assert first is not second
+
+
 @dataclass
 class Entity:
     id: int
@@ -20,6 +41,7 @@ class Context:
 
 
 class FakeShotGrid:
+    base_url = "https://test.shotgrid.autodesk.com"
     def __init__(self, existing: Optional[Mapping[str, Any]] = None) -> None:
         self.existing = dict(existing) if existing else None
         self.files: List[Dict[str, Any]] = []
@@ -94,10 +116,14 @@ class FakePublisher:
         self,
         validate: bool,
         upload_preview: bool,
+        registration: str = "tracker",
     ) -> Dict[str, Any]:
         del validate, upload_preview
         type(self).publish_calls += 1
-        return {"type": "Version", "id": 99, "code": self.version["code"]}
+        self.sg.existing = dict(self.version, type="Version", id=99,
+            project=self.context["project"], entity=self.context["entity"],
+            sg_task=self.context["task"])
+        return dict(self.sg.existing)
 
     def publish_request_from_file(
         self,
@@ -119,7 +145,7 @@ class FakePublisher:
 
 def _request() -> Dict[str, Any]:
     return {
-        "publish_uuid": "stable-uuid",
+        "publish_uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         "version_code": "shot_main_v001",
         "files": ["//rama/show/main/v001/render.exr"],
         "description": "Comp publish",
@@ -152,7 +178,7 @@ def test_existing_uuid_reuses_version_without_published_file_by_default(
         "type": "Version",
         "id": 50,
         "code": "shot_main_v001",
-        "sg__publish_uuid": "stable-uuid",
+        "sg__publish_uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     }
     sg = FakeShotGrid(existing)
     FakePublisher.publish_calls = 0

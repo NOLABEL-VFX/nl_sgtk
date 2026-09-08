@@ -1,6 +1,23 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+from types import SimpleNamespace
+import pytest
+
+
+def test_vendor_data_requires_tagged_group():
+    from nl_sgtk.publisher import ShotgunPublish
+    publisher = ShotgunPublish.__new__(ShotgunPublish)
+    publisher.version = {}
+    publisher.sg = SimpleNamespace(find_one=lambda *args: {
+        "id": 38, "tags": [{"name": "VENDOR"}]})
+    assert publisher.set_vendor_by_data({"type": "Group", "id": 38})
+    assert publisher.version["user"] == {"type": "Group", "id": 38}
+    with pytest.raises(ValueError, match="must be a Group"):
+        publisher.set_vendor_by_data({"type": "HumanUser", "id": 1})
+    publisher.sg = SimpleNamespace(find_one=lambda *args: {"id": 38, "tags": []})
+    with pytest.raises(ValueError, match="VENDOR tag"):
+        publisher.set_vendor_by_data({"type": "Group", "id": 38})
 
 
 class CopyableConnection:

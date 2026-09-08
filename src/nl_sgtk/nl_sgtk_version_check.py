@@ -38,7 +38,13 @@ def read_remote_version() -> str:
 
 
 def is_update_needed(local_version: str, remote_version: str) -> bool:
-    return parse_version_string(remote_version) > parse_version_string(local_version)
+    """Compare numeric releases, treating an omitted build as zero."""
+    local = parse_version_string(local_version)
+    remote = parse_version_string(remote_version)
+    width = max(len(local), len(remote))
+    return remote + (0,) * (width - len(remote)) > (
+        local + (0,) * (width - len(local))
+    )
 
 
 def check_for_update(current_version: str) -> dict[str, str | bool]:

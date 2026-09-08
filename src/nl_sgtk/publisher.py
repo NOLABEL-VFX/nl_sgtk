@@ -9,7 +9,7 @@ import pathlib
 import re
 import sqlite3
 import traceback
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 import uuid
 
 from shotgun_api3 import shotgun
@@ -27,13 +27,11 @@ _PUBLISH_LOG_TABLE = "shotgun_publish_log"
 
 
 def published_files_enabled(project: Optional[Dict[str, Any]] = None) -> bool:
-    """Return whether PublishedFile registration is enabled.
+    """Keep registration Version-only until PublishedFiles are adopted.
 
-    ``project`` is accepted now so this function can read a project setting in
-    a future release. PublishedFile registration is intentionally disabled
-    globally until that integration is implemented.
+    Application exports are publish outputs. Their source paths belong on
+    the Version; PublishedFile migration is a separate future decision.
     """
-    del project
     return False
 
 
@@ -357,6 +355,18 @@ class ShotgunPublish:
         )
         self.user = sg_user
         self.version["user"] = sg_user
+        return True
+
+    def set_vendor_by_data(self, vendor: Mapping[str, Any]) -> bool:
+        """Attribute an output only to a verified VENDOR-tagged Group."""
+        if vendor.get("type") != "Group" or not vendor.get("id"):
+            raise ValueError("A vendor must be a Group")
+        row = self.sg.find_one("Group", [["id", "is", int(vendor["id"])]],
+                               ["code", "tags"])
+        if not row or not any(str(tag.get("name", "")).lower() == "vendor"
+                              for tag in row.get("tags") or []):
+            raise ValueError("Vendor Group must have the VENDOR tag")
+        self.version["user"] = {"type": "Group", "id": row["id"]}
         return True
 
     def set_vendor_by_name(self, vendor_name: str) -> bool:
@@ -784,7 +794,8 @@ class ShotgunPublish:
                     break
         return matched_versions
 
-    def retrieve_version_info(self, validate: bool = True) -> Dict[str, Any]:
+    def retrieve_version_info(self, validate: bool = True, *,
+                              resolve_dependencies: bool = True) -> Dict[str, Any]:
         if validate and not self.trusted:
             self.validate()
 
@@ -797,18 +808,63 @@ class ShotgunPublish:
                     for path in self.version[key]
                 )
 
-        version["sg_dependiencies"] = self.find_dependent_versions()
+        if resolve_dependencies:
+            version["sg_dependiencies"] = self.find_dependent_versions()
+        else:
+            version["sg_dependiencies"] = [
+                link for link in version.get("sg_dependiencies") or []
+                if isinstance(link, dict)]
         return version
 
-    def publish(self, validate: bool = True, upload_preview: bool = True) -> Dict[str, Any]:
+    def publish(self, validate: bool = True, upload_preview: bool = True, *,
+                registration: str = "auto") -> Dict[str, Any]:
+        if registration not in {"auto", "local", "tracker"}:
+            raise ValueError("registration must be auto, local or tracker")
+        sources = getattr(self, "version", {})
+        geometry_only = sources.get(self.GEOMETRY) and not any(
+            sources.get(field) for field in (self.FRAMES, self.MOVIE, self.SCRIPT))
+        local_only = registration == "local" or (
+            registration == "auto" and geometry_only and not self.preview)
+        if local_only:
+            if validate and not self.trusted:
+                self.validate(require_preview=False)
+            import glob
+            for source in self.extract_filepaths():
+                pattern = re.sub(r"#+|%0?\d*d|\$F\d*", "*", glob.escape(source))
+                if not any(os.path.isfile(path) for path in glob.iglob(pattern)):
+                    raise FileNotFoundError("Local publish source missing: " + source)
+            from .publish_manifests import write_core_manifest
+            payload = self.retrieve_version_info(
+                validate=False, resolve_dependencies=False)
+            manifest = write_core_manifest(payload, "", local_only=True)
+            self._register_publish_state(
+                "published_local", payload=payload, export_path=str(manifest))
+            return dict(payload, local_only=True, manifest_path=str(manifest))
         if validate and not self.trusted:
-            self.validate()
+            self.validate(require_preview=upload_preview)
 
         version_payload = self.retrieve_version_info(validate=False)
         self._register_publish_state("publishing", payload=version_payload)
 
         try:
-            version = self.sg.create("Version", version_payload)
+            version = None
+            if getattr(self, "write_publish_manifest", True):
+                from .publish_manifests import VERSION_FIELDS
+                version = self.sg.find_one(
+                    "Version", [["sg__publish_uuid", "is", self.publish_uuid]],
+                    VERSION_FIELDS)
+                if version:
+                    for field in ("project", "entity", "sg_task"):
+                        actual = version.get(field) or {}
+                        expected = version_payload.get(field) or {}
+                        if (actual.get("type"), actual.get("id")) != (
+                                expected.get("type"), expected.get("id")):
+                            raise ValueError("Publish UUID belongs to another context")
+            if version is None:
+                version = self.sg.create("Version", version_payload)
+            else:
+                # Keep the original Version's source metadata on retry.
+                version_payload.update(version)
         except Exception as exc:
             self._register_publish_state(
                 "failed",
@@ -816,6 +872,18 @@ class ShotgunPublish:
                 error=traceback.format_exc(),
             )
             raise
+
+        # Direct vendor/UI publishers also maintain the local Core index.
+        # Failure here is recorded for repair; never create the Version twice.
+        if getattr(self, "write_publish_manifest", True):
+            try:
+                from .publish_manifests import write_core_manifest
+                write_core_manifest(dict(version_payload, id=version["id"]),
+                                    self.sg.base_url)
+            except Exception:
+                self.logger.exception(
+                    "Version %s exists, but its local publish manifest needs "
+                    "repair through Core manifest sync", version["id"])
 
         if upload_preview and self.preview:
             try:

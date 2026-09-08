@@ -1,5 +1,85 @@
 # Changelog
 
+## 1.0.0.1 — 2026-09-08
+
+- Consolidate the pending Core provider, direct entity membership, reference
+  discovery, UUID publication indexing and recovery work into the 1.0 series.
+- Keep review publishing as output plus Version; geometry-only local output
+  retains its manifest-only result shape. Consumers must handle local results
+  without a tracker Version ID.
+- Synchronize package, runtime and legacy shim version declarations. The shim
+  previously still advertised 0.14.2.
+- Compare three/four-part versions with an omitted build treated as zero;
+  avoid false update prompts for equivalent `1.0.0` and `1.0.0.0` labels.
+- Adopt Major.Minor.Fix.build: local builds increment only the fourth number;
+  semantic release changes are selected once before committing/pushing.
+- No provider protocol, API or deployment change is made by this version bump.
+  Entries below 1.0 and above 0.12 describe unreleased development iterations.
+
+## 0.17.1
+
+- Permit validated script/sequence Version registration without a preview when
+  upload_preview=False. Required context, description and ranges still validate.
+
+## 0.17.0
+
+- Preserve exact Core dependency links and file metadata on Versions and their
+  UUID manifests. Accept verified VENDOR-tagged Group identity for submissions.
+- Geometry-only local publishing retains its no-Version behavior. Existing
+  direct publishers still require a preview when requesting preview upload.
+
+## 0.16.0
+
+- Mirror new Core-configured publications into per-Task UUID JSON manifests,
+  using Version.sg__publish_uuid. Supply normalized Version snapshots to Core
+  for explicit backfill and repair without creating Versions.
+- Geometry-only publishes without previews now complete locally by default;
+  no Version, upload or PublishedFile is created. `registration="tracker"`
+  explicitly retains the previous behavior; `registration="local"` can opt
+  other exports into local publication. Local results have `local_only=True`
+  and `manifest_path`, and do not contain a Shotgun Version `id`.
+- Existing export_to_json and the machine-local SQLite publish log remain
+  available. They are distinct from the shared Task publication index.
+- Direct publishers require Core configuration for local-only completion.
+  They never silently fall back to creating a Version if indexing fails.
+  Tracker publication index failures are logged for explicit Core sync repair.
+
+## 0.15.0
+
+- Isolate normal authenticated provider clients per calling thread.
+- Supply direct Scene, Sequence, Shot, Asset and Task relationships with
+  explicit direction through the Core provider protocol.
+- Keep publication Version-only; source paths and uploads remain supported.
+- Supply Version-backed reference discovery for exact Tasks and same-entity
+  upstream Steps, retaining paths and numeric ordering.
+
+
+## 0.14.2
+
+- Refresh the managed NL Hub package after adding launcher project-cache
+  discovery to the provider.
+
+## 0.13.0
+
+### Added
+
+- Added read-only provider launch resolution for an exact Version ID, with
+  normalized Project, entity and optional Task links and script path sources.
+- Added configurable source fields and an explicit application-version field,
+  validated against the Version schema. No Version-code inference, latest
+  Version search, or implicit movie/frame fallback is performed.
+- Added Task lookup restricted to the supplied linked entity.
+- Preserved semicolons and command-like characters in custom source fields;
+  only the publisher's documented path-list fields split on semicolons.
+
+### Compatibility
+
+- These provider APIs are backward-compatible additions from 0.12.0 to 0.13.0.
+  Existing provider methods and protocol version 1.0 are unchanged. Hub/core
+  consumers can adapt the returned mappings to their generic launch models.
+- Synchronized package metadata, runtime version, and the root compatibility
+  shim, which still reported 0.11.0.
+
 ## 0.12.0
 
 ### Added
@@ -338,3 +418,12 @@ These entries were reconstructed from git commits, version declarations, and tag
 - Added initial package metadata and setup configuration.
 - Added the first `nl_sgtk` module implementation.
 - Added initial README documentation.
+# 0.14.0
+
+- Add current-user, entity launch-context, enriched assignment, and Task
+  workfile candidate APIs for the NL Hub DCC launcher adapter.
+
+# 0.14.1
+
+- Add lightweight Project launch resolution and cache LocalStorage mappings
+  for low-latency NL Hub software menus.
