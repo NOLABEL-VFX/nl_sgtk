@@ -3,6 +3,7 @@ import copy
 import logging
 import os
 import webbrowser
+import threading
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "1.0.0.1"
+__version__ = "1.0.1.0"
 
 try:
     notify_if_update_available(__version__)
@@ -468,6 +469,11 @@ def launch_interactive_login(
     """
     Perform app-session login and cache the session data so SGTK can pick it up later.
     """
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError(
+            'ShotGrid sign-in is required. Sign in from the main '
+            'application window, then retry the queued operation.'
+        )
     session_data = sgtk.authentication.app_session_launcher.process(
         base_url,
         product=product,
@@ -538,7 +544,7 @@ def _sgtk_login_uncached(
         if not validate_connection(sg):
             raise RuntimeError("User test failed: connection works but query returned no results.")
     except shotgun.AuthenticationFault as e:
-        log.error(f"{e} / Retrying login with session refresh...")
+        log.warning("ShotGrid session needs refresh: %s", e)
         launch_interactive_login(base_url=base_url, product=product)
         user = ensure_sgtk_user(base_url=base_url, product=product)
         sg = build_shotgun_connection_from_user(user, base_url=base_url)
@@ -588,7 +594,10 @@ def sgtk_login(
     except Exception as exc:
         _sgtk_login_cached.cache_clear()
         # In production you may want narrower exceptions, but keep one catch here for the public API.
-        log.exception("SGTK/ShotGrid auth failed: %s", exc)
+        if threading.current_thread() is threading.main_thread():
+            log.exception("SGTK/ShotGrid auth failed: %s", exc)
+        else:
+            log.warning("Background ShotGrid login deferred: %s", exc)
         return None, None
 
 def get_user_tasks(user: Dict[str, Any], sg=None) -> List[Dict[str, Any]]:

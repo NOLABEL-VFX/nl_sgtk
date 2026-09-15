@@ -306,3 +306,11 @@ publications still do not require a Version or tracker upload.
 `publish(upload_preview=False)` validates context and files without requiring a
 preview. Image/script registrations can therefore complete before review media
 is available. The default still requires and uploads a preview.
+
+### Background authentication
+
+`launch_interactive_login` requires the Python main thread and raises
+`RuntimeError` before opening a browser when called from a worker.
+`sgtk_login` continues to return `(None, None)` on authentication failure;
+background callers should retain work for retry after user sign-in from
+the application window. Existing valid cached/script logins remain usable.

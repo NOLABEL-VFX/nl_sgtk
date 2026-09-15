@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1.0 - 2026-09-15
+
+- Defer interactive authentication requested by worker threads to sign-in
+  from the application window; do not start background browser requests.
+- Keep the existing `(None, None)` login failure contract and valid cached
+  connections. Background failures are warnings, preventing error cascades.
+- Existing public signatures are unchanged.
+
 ## 1.0.0.1 — 2026-09-08
 
 - Consolidate the pending Core provider, direct entity membership, reference
