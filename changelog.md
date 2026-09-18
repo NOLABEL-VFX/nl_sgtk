@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0.0 — 2026-09-18
+
+- Launchers can read project-linked software versions and exact platform paths.
+- Direct Shot/Asset launches retain project OCIO configuration and resolve
+  relative LUT paths beside that configuration.
+- Includes the changes prepared in local builds 1.0.1.1 and 1.0.1.2.
+
+## 1.0.1.2 — 2026-09-18
+
+- Preserve project OCIO configuration in direct Shot/Asset launch contexts.
+  Relative shot LUTs now resolve beside the selected config, including
+  projects with nested ACES folders. Public signatures are unchanged.
+
+## 1.0.1.1 — 2026-09-18
+
+- Expose project-linked Software Versions to launchers, including exact
+  version labels, product links and Windows/Linux executable paths.
+- Reject missing linked records instead of selecting a fallback version.
+
 ## 1.0.1.0 - 2026-09-15
 
 - Defer interactive authentication requested by worker threads to sign-in

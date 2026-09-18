@@ -19,6 +19,34 @@ _spec.loader.exec_module(_module)
 NlSgtkProvider = _module.NlSgtkProvider
 
 
+def test_project_software_reads_linked_records_only() -> None:
+    """Resolve only Project-linked builds, preserving raw platform paths."""
+    from unittest.mock import Mock
+
+    field = ("custom_non_project_entity04_sg_projects_"
+             "custom_non_project_entity04s")
+    product_field = ("custom_non_project_entity01_sg_versions_"
+                     "custom_non_project_entity01s")
+    connection = Mock()
+    connection.find_one.return_value = {field: [
+        {"type": "CustomNonProjectEntity04", "id": 34},
+    ]}
+    connection.find.return_value = [{
+        "id": 34, "code": "Nuke 16.0v6",
+        "sg_windows_path": "C:/Nuke16.0v6/Nuke16.0.exe",
+        product_field: [{"id": 2, "name": "Foundry's Nuke"}],
+    }]
+    provider = NlSgtkProvider()
+    provider._connection = lambda: (connection, {"id": 484})
+    result = provider.resolve_launch_software(5336)
+    assert result[0]["software_names"] == ["Foundry's Nuke"]
+    assert result[0]["windows_path"].endswith("Nuke16.0.exe")
+    assert connection.find.call_args.args[1] == [["id", "in", [34]]]
+    connection.find.return_value = []
+    with pytest.raises(LookupError, match="unreadable"):
+        provider.resolve_launch_software(5336)
+
+
 PROJECT = {"type": "Project", "id": 1}
 SHOT = {"type": "Shot", "id": 2}
 TASK = {"type": "Task", "id": 3}

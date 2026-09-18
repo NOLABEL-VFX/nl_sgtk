@@ -287,6 +287,11 @@ class NlSgtkProvider:
             "scene": row.get("sg_scene") or "",
         }
         metadata.update(row.get("env") or {})
+        # Entity launches need the same project OCIO as task launches.
+        # A bare LUT name is relative to that config's directory.
+        metadata["ocio_config"] = (
+            row.get("project.Project.sg_ocio_config_path") or ""
+        )
         return {
             "project_id": project["id"],
             "project_name": (
@@ -359,6 +364,55 @@ class NlSgtkProvider:
                 "project_root": root,
             })
         return projects
+
+    def resolve_launch_software(
+        self, project_id: int,
+    ) -> List[Mapping[str, Any]]:
+        """Read the exact software-version records linked to one Project.
+
+        Returns:
+            Tracker facts: record ID/name, linked software names and the
+            configured Windows/Linux executable paths. No launch policy is
+            inferred and paths are not executed or written.
+
+        Raises:
+            LookupError: If the Project or any linked version is unreadable.
+
+        Side Effects:
+            Performs authenticated read-only Project and version queries.
+        """
+
+        _launch_link("Project", project_id)
+        field = (
+            "custom_non_project_entity04_sg_projects_"
+            "custom_non_project_entity04s"
+        )
+        products = (
+            "custom_non_project_entity01_sg_versions_"
+            "custom_non_project_entity01s"
+        )
+        sg, _ = self._connection()
+        project = sg.find_one("Project", [["id", "is", project_id]],
+                              [field])
+        if project is None:
+            raise LookupError("Project software policy is unavailable")
+        ids = [row["id"] for row in project.get(field) or ()
+               if row.get("type") == "CustomNonProjectEntity04"]
+        if not ids:
+            return []
+        rows = sg.find(
+            "CustomNonProjectEntity04", [["id", "in", ids]],
+            ["code", "sg_windows_path", "sg_linux_path", products],
+        ) or []
+        if {row["id"] for row in rows} != set(ids):
+            raise LookupError("Linked software versions are unreadable")
+        return [{
+            "id": row["id"], "name": str(row.get("code") or ""),
+            "software_names": [str(ref.get("name") or "")
+                               for ref in row.get(products) or ()],
+            "windows_path": str(row.get("sg_windows_path") or ""),
+            "linux_path": str(row.get("sg_linux_path") or ""),
+        } for row in rows]
 
     def list_task_workfiles(
         self,

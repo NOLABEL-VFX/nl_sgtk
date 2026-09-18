@@ -6,6 +6,28 @@ from typing import Any, Dict, List, Mapping, Optional
 from nl_sgtk.provider import NlSgtkProvider
 
 
+def test_entity_launch_preserves_project_ocio(monkeypatch):
+    import nl_sgtk.nl_sgtk as api
+
+    config = "//server/show/OCIO/aces_1.2/config.ocio"
+    row = {
+        "project": {"type": "Project", "id": 1},
+        "code": "sh010",
+        "project.Project.sg_ocio_config_path": config,
+        "env": {"SHOT_LUT_PRIMARY": "day.cube"},
+    }
+    monkeypatch.setattr(api, "get_entity_context", lambda *a, **k: row)
+    provider = NlSgtkProvider()
+    monkeypatch.setattr(provider, "_connection", lambda: (None, {"id": 2}))
+    for entity_type in ("Shot", "Asset"):
+        context = provider.resolve_launch_context(entity_type, 3)
+        assert context["metadata"]["ocio_config"] == config
+    assert context["metadata"]["SHOT_LUT_PRIMARY"] == "day.cube"
+    row["project.Project.sg_ocio_config_path"] = None
+    context = provider.resolve_launch_context("Shot", 3)
+    assert context["metadata"]["ocio_config"] == ""
+
+
 def test_connections_are_isolated_between_worker_threads(monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

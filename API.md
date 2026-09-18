@@ -262,7 +262,19 @@ Hub/core's generic launch models; they do not launch applications or write
 tracker records. Tests supply a fake connection without authentication.
 # DCC launcher provider API
 
+`resolve_launch_software(project_id)` reads
+`Project.custom_non_project_entity04_sg_projects_custom_non_project_entity04s`
+and returns linked `CustomNonProjectEntity04` facts: `id`, `name`,
+`software_names`, `windows_path`, and `linux_path`. It raises if any linked
+record is unreadable. NL Hub owns product/version normalization and policy
+merging; this provider never executes those paths or mutates tracker data.
+
 `NlSgtkProvider` exposes `current_user()`, `resolve_launch_project()`,
+`resolve_launch_context()` includes the localized project OCIO path as
+`metadata.ocio_config`, alongside the shot color environment. Launchers can
+resolve relative LUT names in nested OCIO config folders. An unset project
+OCIO path is represented by an empty string.
+
 `list_launch_projects()`, `resolve_launch_context()`, `list_launch_tasks()`, and
 `list_task_workfiles()` for trusted NL Hub launch routing.
 `resolve_launch_project(project_id)` requests only the Project name, code and
