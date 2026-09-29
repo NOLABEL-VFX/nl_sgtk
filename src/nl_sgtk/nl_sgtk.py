@@ -5,7 +5,7 @@ import os
 import webbrowser
 import threading
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .nl_sgtk_version_check import notify_if_update_available
 from .user_cache import update_user_cache
@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "1.1.0.0"
+__version__ = "1.2.0.0"
 
 try:
     notify_if_update_available(__version__)
@@ -464,12 +464,26 @@ def ensure_sgtk_user(
 def launch_interactive_login(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
-    browser_open_callback=webbrowser.open,
+    browser_open_callback: Callable[[str], Any] = webbrowser.open,
+    *,
+    force: bool = False,
 ) -> None:
     """
-    Perform app-session login and cache the session data so SGTK can pick it up later.
+    Perform app-session login and cache the session data for SGTK.
+
+    By default, reject worker-thread calls before starting authentication.
+    This guard was added for Qt hosts such as Nuke: background operations
+    must not start login UI or callbacks that access Qt outside the main
+    application thread, where they can hang or crash the host. Instead,
+    sign in from the main window and retry the queued operation.
+
+    Set ``force=True`` only when the caller knows the login flow and
+    ``browser_open_callback`` are safe in the calling thread, for example
+    a browser-only flow in a non-Qt host such as ComfyUI. This bypasses only
+    the thread guard; it does not dispatch to the main thread or make Qt
+    operations thread-safe. Authentication and session caching still run.
     """
-    if threading.current_thread() is not threading.main_thread():
+    if not force and threading.current_thread() is not threading.main_thread():
         raise RuntimeError(
             'ShotGrid sign-in is required. Sign in from the main '
             'application window, then retry the queued operation.'

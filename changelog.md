@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0.0 — 2026-09-29
+
+- `launch_interactive_login(force=True)` allows explicitly verified non-Qt
+  login flows to run from worker threads, including browser-only ComfyUI
+  integrations. The default still rejects worker-thread interactive login.
+- Document why Qt hosts require the login thread guard and when callers may
+  safely bypass it. Existing authentication callers remain unchanged.
+
 ## 1.1.0.0 — 2026-09-18
 
 - Launchers can read project-linked software versions and exact platform paths.

@@ -57,6 +57,11 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
     `nl_sgtk_user_data` to `nl_sgtk_user_data_old`.
 - `get_user()`
   - Returns current resolved user dictionary.
+- `launch_interactive_login(base_url=SHOTGRID_URL, product=DEFAULT_PRODUCT,
+  browser_open_callback=webbrowser.open, *, force=False)`
+  - Runs browser app-session login and caches the session for SGTK.
+  - Raises `RuntimeError` outside the main thread unless `force=True`.
+    See **Background authentication** for the Qt restriction and safe bypass.
 
 ## Task / Entity Context APIs
 
@@ -321,8 +326,21 @@ is available. The default still requires and uploads a preview.
 
 ### Background authentication
 
-`launch_interactive_login` requires the Python main thread and raises
-`RuntimeError` before opening a browser when called from a worker.
+By default, `launch_interactive_login` requires the Python main thread and
+raises `RuntimeError` before opening a browser when called from a worker.
+This guard was introduced for Qt hosts such as Nuke to prevent background
+operations from starting login UI or callbacks that access Qt outside the
+main application thread, potentially hanging or crashing the host.
+
+Pass `launch_interactive_login(force=True)` to bypass only this thread check
+when the caller has verified that the login flow and `browser_open_callback`
+are safe in the calling thread, for example a browser-only login in a non-Qt
+host such as ComfyUI. The keyword-only flag defaults to `False`; existing
+callers retain the guard. It does not dispatch work to the main thread or
+make Qt operations thread-safe. Authentication and session caching are
+unchanged. Automatic calls through `sgtk_login` and `ensure_sgtk_user` retain
+the default guard.
+
 `sgtk_login` continues to return `(None, None)` on authentication failure;
 background callers should retain work for retry after user sign-in from
 the application window. Existing valid cached/script logins remain usable.
