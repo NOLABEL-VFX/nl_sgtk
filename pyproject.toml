@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nl_sgtk"
-version = "1.2.0.0"
+version = "1.3.0.0"
 description = "Nolabel's ShotGrid Toolkit helpers."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -24,6 +24,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/nolabel/nl_sgtk"
+
+[project.optional-dependencies]
+core = ["nl-core>=1.4.1.1"]
 
 [project.entry-points."nl_core.tracker_providers"]
 nl_sgtk = "nl_sgtk.provider:NlSgtkProvider"

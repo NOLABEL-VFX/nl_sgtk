@@ -38,6 +38,60 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 
 ## Authentication / Session
 
+### Optional native Core Task sessions
+
+`nl_sgtk.core` is a Python submodule with a lazy optional dependency on
+`nl-core>=1.4.1.1` (`nl_sgtk[core]`). Importing nl_sgtk does not import Core.
+The ordinary `get_task_context(task_id, sg=None)` dictionary is unchanged.
+
+```python
+import nl_sgtk
+
+with nl_sgtk.get_task(184033) as task:
+    data = task.context
+    session = task.core_session
+    if session is not None:
+        work = session.path("work")
+```
+
+`get_task(task_id, sg=None) -> Optional[nl_sgtk.core.Task]` returns `None`
+for a missing Task. `Task.id` is its exact Flow ID. `core_session` opens once
+on first access and is `None` for schema0. `Task.close()` releases its owned
+runtime; the context manager does that automatically. Access after close
+opens a new session and rechecks current accepted policy.
+
+For dictionary callers, opt in explicitly:
+
+```python
+data = nl_sgtk.get_task_context(184033, include_core_session=True)
+session = data["core_session"] if data else None
+try:
+    if session is not None:
+        work = session.path("work")
+finally:
+    if session is not None:
+        session.runtime.close()
+```
+
+This flag adds a live Python object, so that dictionary is intentionally not
+JSON serializable. Do not put it into launch manifests or saved scenes.
+`nl_sgtk.core.open_core_session(context, *, sg=None, user=None)` accepts an
+already verified Task context (raw or compact). Each returned session owns
+a runtime. When using a supplied Flow client, pass its authenticated `user`
+to preserve author information for Core filename and publish planning.
+These entry points do not materialize directories, initialize projects, or
+publish. Unavailable project storage, missing optional dependencies for a
+native project, invalid accepted TOML, identity mismatch and refresh errors
+raise; they never silently become schema0. The accepted Git configuration
+is authoritative; unaccepted working-copy edits do not change its policy.
+
+`NlSgtkProvider(sg=None, user=None)` accepts an existing authenticated client.
+The provider now exposes `find_legacy_versions(context)` (all four Version
+path channels, exact Task/Project, author and Group tags) and
+`find_tasks_for_path(path)` (exact historical file matches only). Shared file
+ownership returns all candidates; directory or filename-only guesses do not
+select a Task. `fetch_task()` includes the project's `sg_structure_map`.
+
 - `sgtk_login(base_url=SHOTGRID_URL, product=DEFAULT_PRODUCT)`
   - Returns `(sg, user)` on success, `(None, None)` on failure.
   - Caches the authenticated source session, then deep-copies the ShotGrid

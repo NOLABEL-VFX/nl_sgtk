@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "1.2.0.0"
+__version__ = "1.3.0.0"
 
 try:
     notify_if_update_available(__version__)
@@ -756,14 +756,22 @@ def verify_path(path, storages, system=None):
     return output
 
 
-def get_task_context(task_id: int, sg=None) -> Optional[Dict[str, Any]]:
+def get_task_context(
+    task_id: int, sg: Any = None, *, include_core_session: bool = False,
+) -> Optional[Dict[str, Any]]:
     """
     Fetch ShotGrid Task metadata for a specific Task ID.
     """
+    user = None
     if not sg:
         sg, user = sgtk_login()
 
-    return _fetch_entity_context(sg, "Task", task_id)
+    context = _fetch_entity_context(sg, "Task", task_id)
+    if context is not None and include_core_session:
+        from .core import open_core_session
+        context = dict(context)
+        context["core_session"] = open_core_session(context, sg=sg, user=user)
+    return context
 
 
 def get_entity_context(entity_type: str, entity_id: int, sg=None) -> Optional[Dict[str, Any]]:

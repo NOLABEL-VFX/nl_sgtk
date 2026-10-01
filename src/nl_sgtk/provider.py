@@ -20,9 +20,12 @@ class NlSgtkProvider:
     name = "nl_sgtk"
     protocol_version = "1.0"
 
-    def __init__(self) -> None:
-        self._sg: Any = None
-        self._user: Optional[Dict[str, Any]] = None
+    def __init__(
+        self, sg: Any = None, user: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        self._sg: Any = sg
+        self._user: Optional[Dict[str, Any]] = (
+            dict(user) if user is not None else None)
         self._connections = threading.local()
         self._storages: Optional[List[Dict[str, Any]]] = None
         self._storage_lock = threading.Lock()
@@ -490,6 +493,13 @@ class NlSgtkProvider:
         context = get_task_context(task_id, sg=sg)
         if not context:
             raise LookupError("ShotGrid Task %s was not found" % task_id)
+        project = context.get("project") or {}
+        if project.get("id"):
+            row = sg.find_one(
+                "Project", [["id", "is", int(project["id"])]],
+                ["sg_structure_map"],
+            ) or {}
+            context["structure_map"] = row.get("sg_structure_map")
         step = context.get("step")
         if isinstance(step, Mapping) and step.get("id"):
             step_row = sg.find_one(
@@ -519,6 +529,65 @@ class NlSgtkProvider:
             if asset and asset.get("sg_asset_type"):
                 context["asset_type"] = str(asset["sg_asset_type"])
         return context
+
+    def find_legacy_versions(
+        self, context: Any,
+    ) -> List[Mapping[str, Any]]:
+        """Read exact Task history for schema0 without changing records."""
+        from .nl_sgtk import verify_path
+
+        sg, _ = self._connection()
+        rows = sg.find("Version", [
+            ["project", "is", {"type": "Project", "id": context.project.id}],
+            ["sg_task", "is", {"type": "Task", "id": context.task.id}],
+        ], ["code", "created_at", "sg_task", "user",
+            "user.Group.tags", *sorted(_PUBLISHER_PATH_FIELDS)],
+            order=[{"field_name": "created_at", "direction": "desc"}]) or []
+        storages = self._storage_mappings()
+        result = []
+        for row in rows:
+            item = dict(row)
+            for field in _PUBLISHER_PATH_FIELDS:
+                value = item.get(field)
+                if value:
+                    item[field] = ";".join(
+                        verify_path(path.strip(), storages)
+                        for path in value.split(";") if path.strip()
+                    )
+            result.append(item)
+        return result
+
+    def find_tasks_for_path(self, path: str) -> List[Mapping[str, Any]]:
+        """Identify only exact historical files; retain shared ambiguity.
+
+        Directory names and filenames never imply Task ownership. A path
+        without Version evidence must be selected via an explicit Task.
+        """
+        from .nl_sgtk import verify_path
+
+        sg, _ = self._connection()
+        storages = self._storage_mappings()
+        normalized = _normalized_path(verify_path(path, storages))
+        basename = normalized.rsplit("/", 1)[-1]
+        if not basename or "." not in basename:
+            return []
+        rows = sg.find("Version", [{
+            "filter_operator": "any", "filters": [
+                [field, "contains", basename]
+                for field in sorted(_PUBLISHER_PATH_FIELDS)
+            ],
+        }], ["sg_task", *sorted(_PUBLISHER_PATH_FIELDS)]) or []
+        tasks = {}
+        for row in rows:
+            task = row.get("sg_task") or {}
+            if not task.get("id"):
+                continue
+            for field in _PUBLISHER_PATH_FIELDS:
+                paths = str(row.get(field) or "").split(";")
+                if any(_normalized_path(verify_path(p.strip(), storages))
+                       == normalized for p in paths if p.strip()):
+                    tasks[task["id"]] = dict(task)
+        return list(tasks.values())
 
     def find_publishes(
         self,
