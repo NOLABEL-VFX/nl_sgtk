@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0.0 - 2026-10-02
+
+- Provide optional Task, entity and Project thumbnails for the launch card.
+- Missing thumbnail fields do not prevent software launches or change assignments.
+
 ## 1.4.0.0 - 2026-10-02
 
 - Add read-only exact-Task launch sources with PublishedFile provenance.

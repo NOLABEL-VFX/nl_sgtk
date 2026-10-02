@@ -243,6 +243,45 @@ class NlSgtkProvider:
             tasks.append(task)
         return tasks
 
+    def list_launch_thumbnails(
+        self, entity_type: str, entity_id: int, task_id: int = 0,
+    ) -> List[Mapping[str, str]]:
+        """Return optional Task, entity and Project images in fallback order.
+
+        Image fields may be unavailable on some entity types. Failed optional
+        thumbnail queries never change launch readiness or tracker records.
+        """
+        if entity_type not in {'Shot', 'Asset', 'Scene', 'Sequence'}:
+            return []
+        entity = _launch_link(entity_type, entity_id)
+        sg, _ = self._connection()
+        result: List[Mapping[str, str]] = []
+
+        def read(kind: str, number: int, fields: List[str]) -> Mapping[str, Any]:
+            try:
+                return sg.find_one(kind, [['id', 'is', number]], fields) or {}
+            except Exception:
+                return {}
+
+        def add(row: Mapping[str, Any], label: str) -> None:
+            url = row.get('image')
+            if isinstance(url, str) and url.startswith('https://'):
+                if not any(item['url'] == url for item in result):
+                    result.append({'url': url, 'label': label})
+
+        if task_id:
+            _launch_link('Task', task_id)
+            task = read('Task', task_id, ['image', 'entity'])
+            link = task.get('entity') or {}
+            if link.get('type') == entity_type and link.get('id') == entity_id:
+                add(task, 'Task thumbnail')
+        row = read(entity_type, entity_id, ['image', 'project'])
+        add(row, entity_type + ' thumbnail')
+        project = row.get('project') or {}
+        if project.get('type') == 'Project' and project.get('id'):
+            add(read('Project', project['id'], ['image']), 'Project thumbnail')
+        return result
+
     def current_user(self) -> Mapping[str, Any]:
         """Return the authenticated HumanUser used for artist routing."""
 

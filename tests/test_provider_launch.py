@@ -19,6 +19,34 @@ _spec.loader.exec_module(_module)
 NlSgtkProvider = _module.NlSgtkProvider
 
 
+def test_thumbnails_follow_validated_task_entity_project_order():
+    from unittest.mock import Mock
+    sg = Mock()
+    sg.find_one.side_effect = [
+        {'image': 'https://images/task.jpg',
+         'entity': {'type': 'Shot', 'id': 2}},
+        {'image': 'https://images/shot.jpg',
+         'project': {'type': 'Project', 'id': 1}},
+        {'image': 'https://images/project.jpg'},
+    ]
+    provider = NlSgtkProvider(sg, {'id': 7})
+    assert [row['label'] for row in provider.list_launch_thumbnails(
+        'Shot', 2, 3)] == ['Task thumbnail', 'Shot thumbnail', 'Project thumbnail']
+    sg.create.assert_not_called()
+    sg.update.assert_not_called()
+
+
+def test_thumbnail_unavailable_task_field_falls_back_to_project():
+    from unittest.mock import Mock
+    sg = Mock()
+    sg.find_one.side_effect = [RuntimeError('Task has no image field'),
+        {'project': {'type': 'Project', 'id': 1}},
+        {'image': 'https://images/project.jpg'}]
+    provider = NlSgtkProvider(sg, {'id': 7})
+    assert provider.list_launch_thumbnails('Shot', 2, 3) == [
+        {'url': 'https://images/project.jpg', 'label': 'Project thumbnail'}]
+
+
 def test_task_sources_enrich_published_metadata_and_scope_exact_task():
     from unittest.mock import Mock
     sg = Mock()

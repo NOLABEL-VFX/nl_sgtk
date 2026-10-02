@@ -418,3 +418,10 @@ association when schema metadata marks subsequent editing unavailable. Updates
 still require editable fields. Other field restrictions, enum validation and
 server-side authorization remain in force; failures preserve local diagnostics.
 Reference: https://developers.shotgridsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.schema_field_read
+# Launch thumbnails
+
+`NlSgtkProvider.list_launch_thumbnails(entity_type, entity_id, task_id=0)`
+returns optional HTTPS image URLs and labels in Task → entity → Project order.
+The Task image is used only when its entity link matches. Unsupported or
+unavailable image fields are skipped. This read-only API returns no image
+bytes, writes no cache and does not affect launch readiness.
