@@ -536,3 +536,34 @@ def test_extract_versions_indexes_application_version_and_build() -> None:
         "3ds max": ["2025.3"],
         "3ds max.build": ["25.3.0.1234"],
     }
+
+
+@pytest.mark.parametrize("entity_type", ["Ticket", "Note"])
+def test_creation_allows_initial_project_but_update_does_not(entity_type):
+    """An immutable association can be set at creation, never changed later."""
+    from nl_sgtk.tickets import _validate_editable_fields
+    sg = FakeShotGrid()
+    schema = sg.schema_field_read(entity_type)
+    schema["project"]["editable"]["value"] = False
+    sg.schema_field_read = lambda _: schema
+    payload = {"project": {"type": "Project", "id": 750}}
+    _validate_editable_fields(sg, entity_type, payload, creating=True)
+    with pytest.raises(TicketSchemaError, match="not editable"):
+        _validate_editable_fields(sg, entity_type, payload)
+    schema.pop("project")
+    with pytest.raises(TicketSchemaError, match="unavailable"):
+        _validate_editable_fields(sg, entity_type, payload, creating=True)
+
+
+def test_project_creation_exception_does_not_bypass_server_authorization():
+    """The original account's create denial must remain an explicit failure."""
+    sg = FakeShotGrid(create_error=RuntimeError("permission denied"))
+    schema = sg.schema_field_read("Ticket")
+    schema["project"]["editable"]["value"] = False
+    sg.schema_field_read = lambda _: schema
+    with pytest.raises(TicketCreationError, match="rejected") as caught:
+        create_ticket("Test", "Details", sg=sg,
+                      user={"type": "HumanUser", "id": 77},
+                      deduplicate=False)
+    assert str(caught.value.__cause__) == "permission denied"
+    assert not sg.created

@@ -464,6 +464,41 @@ class NlSgtkProvider:
                     )
         return result
 
+    def list_task_launch_sources(self, task_id: int
+                                 ) -> List[Mapping[str, Any]]:
+        """Return exact-Task published scene references for launch preview.
+
+        Version script fields retain compatibility with legacy publishers;
+        PublishedFile rows enrich matching paths and add registered scenes.
+        This method reads tracker records only and never scans local files.
+        """
+        task = _launch_link('Task', task_id)
+        result = [dict(row, provenance='published')
+                  for row in self.list_task_workfiles(task_id)]
+        by_path = {_normalized_path(row['path']): row for row in result}
+        sg, _ = self._connection()
+        rows = sg.find('PublishedFile', [['task', 'is', task]], [
+            'path', 'sg_path_string', 'code', 'version_number', 'version',
+            'published_file_type', 'created_at',
+        ]) or []
+        for row in rows:
+            path = _published_path(row)
+            if not path:
+                continue
+            key = _normalized_path(path)
+            target = by_path.get(key)
+            if target is None:
+                target = {'path': path, 'provenance': 'published'}
+                result.append(target)
+                by_path[key] = target
+            target.update({
+                'published_file_id': row['id'],
+                'published_file_type': row.get('published_file_type'),
+                'version_number': row.get('version_number'),
+                'created_at': row.get('created_at'),
+            })
+        return result
+
     def localize_launch_path(self, path: str) -> str:
         """Map a trusted ShotGrid path through LocalStorage definitions."""
 

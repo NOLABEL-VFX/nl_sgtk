@@ -549,7 +549,7 @@ def _append_occurrence(
         "note_links": [{"type": "Ticket", "id": ticket_id}],
         "project": project,
     }
-    _validate_editable_fields(client, "Note", note_payload)
+    _validate_editable_fields(client, "Note", note_payload, creating=True)
     try:
         note = client.create("Note", note_payload)
         note_id = int(note["id"])
@@ -729,7 +729,8 @@ def _require_named_entity(
 
 
 def _validate_schema(client: Any, payload: Mapping[str, Any]) -> None:
-    schema = _validate_editable_fields(client, "Ticket", payload)
+    """Validate Ticket creation fields and configured enum values."""
+    schema = _validate_editable_fields(client, "Ticket", payload, creating=True)
     for field in ("sg_ticket_type", "sg_priority", "sg_status_list"):
         valid_values = (
             schema[field].get("properties", {}).get("valid_values", {}).get("value")
@@ -744,7 +745,26 @@ def _validate_editable_fields(
     client: Any,
     entity_type: str,
     payload: Mapping[str, Any],
+    *,
+    creating: bool = False,
 ) -> Mapping[str, Any]:
+    """Validate fields for creation or updates without inferring permissions.
+
+    Args:
+        client: Authenticated ShotGrid API client.
+        entity_type: Ticket or Note entity type.
+        payload: Intended API field values.
+        creating: Allow the initial project association on entity creation.
+
+    Returns:
+        Field metadata for further type and enum checks.
+
+    Notes:
+        The project association is supplied on creation even when it is not
+        subsequently editable. All fields must exist; other noneditable fields
+        remain rejected. Server authorization and creation failures remain
+        authoritative and are never retried with another identity.
+    """
     try:
         schema = client.schema_field_read(entity_type)
     except Exception as exc:
@@ -758,7 +778,9 @@ def _validate_editable_fields(
                 f"Required {entity_type} field {field!r} is unavailable."
             )
         editable = definition.get("editable", {}).get("value", True)
-        if editable is False:
+        initial_project = (creating and field == "project"
+                           and entity_type in {"Ticket", "Note"})
+        if editable is False and not initial_project:
             raise TicketSchemaError(
                 f"Required {entity_type} field {field!r} is not editable."
             )

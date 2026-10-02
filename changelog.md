@@ -1,11 +1,23 @@
 # Changelog
 
+## 1.4.0.0 - 2026-10-02
+
+- Add read-only exact-Task launch sources with PublishedFile provenance.
+- Preserve the deployed Ticket/Note project-association correction.
+- Matched release for Hub task-first launch cards; no assignment writes.
+
 ## 1.3.0.0 - 2026-10-01
 
 - Add optional lazy `get_task(id).core_session` and dictionary opt-in via `get_task_context(..., include_core_session=True)`. The ordinary dictionary API is unchanged.
 - Return no optional session for schema0; report invalid native configuration and unavailable storage explicitly.
 - Preserve exact legacy Version paths, storage mappings, author tags and project hierarchy in the Core provider. Never infer Task ownership from a filename alone.
 - Requires Core 1.4.1.1 only when native sessions are requested.
+
+## 1.2.1.0 - 2026-10-01
+
+- Permit initial Ticket/Note project associations while retaining all
+  update restrictions and server-side authorization.
+
 
 ## 1.2.0.0 — 2026-09-29
 

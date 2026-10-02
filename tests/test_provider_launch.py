@@ -19,6 +19,30 @@ _spec.loader.exec_module(_module)
 NlSgtkProvider = _module.NlSgtkProvider
 
 
+def test_task_sources_enrich_published_metadata_and_scope_exact_task():
+    from unittest.mock import Mock
+    sg = Mock()
+    sg.find.return_value = [
+        {'id': 5, 'path': {'local_path': '/show/task/source_v012.nk'},
+         'version_number': 12, 'published_file_type': {'name': 'Nuke Script'}},
+        {'id': 6, 'path': {'local_path': '/show/task/other_v013.nk'}},
+        {'id': 7, 'path': None},
+    ]
+    provider = NlSgtkProvider()
+    provider._connection = lambda: (sg, {'id': 7})
+    provider.list_task_workfiles = lambda _: [
+        {'path': '/show/task/source_v012.nk', 'version_id': 99}]
+    rows = provider.list_task_launch_sources(3)
+    assert len(rows) == 2
+    assert rows[0]['published_file_id'] == 5
+    assert rows[0]['version_id'] == 99
+    assert all(row['provenance'] == 'published' for row in rows)
+    assert sg.find.call_args.args[1] == [
+        ['task', 'is', {'type': 'Task', 'id': 3}]]
+    sg.create.assert_not_called()
+    sg.update.assert_not_called()
+
+
 def test_project_software_reads_linked_records_only() -> None:
     """Resolve only Project-linked builds, preserving raw platform paths."""
     from unittest.mock import Mock
