@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1.0 - 2026-10-12
+
+- Linux project and launch paths retry filesystem case matching before being
+  rejected as unavailable. Exact existing paths retain priority.
+- Optional native Core sessions require Core 1.5.3.0 or newer; mounted storage
+  is still required and ambiguous directory names are reported.
+
+
 ## 1.5.0.0 - 2026-10-02
 
 - Provide optional Task, entity and Project thumbnails for the launch card.

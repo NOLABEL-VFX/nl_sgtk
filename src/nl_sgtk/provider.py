@@ -306,7 +306,7 @@ class NlSgtkProvider:
         if entity_type not in {"Shot", "Asset"}:
             raise ValueError("Launch context supports only Shot and Asset")
         _launch_link(entity_type, entity_id)
-        from .nl_sgtk import get_entity_context, verify_path
+        from .nl_sgtk import get_entity_context
 
         sg, user = self._connection()
         row = get_entity_context(entity_type, entity_id, sg=sg)
@@ -318,7 +318,7 @@ class NlSgtkProvider:
         project = _launch_row_link(row, "project", "Project")
         root = str(row.get("sg_project_path") or "")
         if root:
-            root = verify_path(root, self._storage_mappings())
+            root = self.localize_launch_path(root)
         metadata = {
             "fps": row.get("sg_master_fps") or "",
             "resolution_width": row.get("master_resolution_width") or "",
@@ -544,8 +544,11 @@ class NlSgtkProvider:
         if not isinstance(path, str) or not path.strip():
             raise ValueError("Launch path must be non-empty text")
         from .nl_sgtk import verify_path
+        from ._filesystem import resolve_storage_case
 
-        return verify_path(path, self._storage_mappings())
+        return resolve_storage_case(
+            verify_path(path, self._storage_mappings()),
+        )
 
     def _storage_mappings(self) -> List[Dict[str, Any]]:
         """Read LocalStorage rows once for this authenticated provider."""

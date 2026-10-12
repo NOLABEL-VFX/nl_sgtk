@@ -24,6 +24,7 @@ def open_core_session(
     Configuration, identity, import and provider errors propagate.
     """
     from .nl_sgtk import get_storages, verify_path
+    from ._filesystem import resolve_storage_case
 
     number = context.get("task_id") or context.get("id")
     if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
@@ -36,7 +37,7 @@ def open_core_session(
         raise ValueError("The Task has no verified project path")
     if sg is not None:
         project_path = verify_path(str(project_path), get_storages(sg=sg))
-    root = Path(project_path).expanduser()
+    root = Path(resolve_storage_case(str(project_path))).expanduser()
     if not root.is_dir():
         raise FileNotFoundError("Project storage is unavailable: %s" % root)
     if not (root / "000_admin/nl_core/project.toml").is_file():

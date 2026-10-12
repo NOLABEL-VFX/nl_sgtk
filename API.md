@@ -425,3 +425,13 @@ returns optional HTTPS image URLs and labels in Task → entity → Project orde
 The Task image is used only when its entity link matches. Unsupported or
 unavailable image fields are skipped. This read-only API returns no image
 bytes, writes no cache and does not affect launch readiness.
+
+## Linux storage case fallback
+
+`NlSgtkProvider.localize_launch_path()` and `open_core_session()` retry
+unavailable Linux paths using optional Core filesystem case matching before
+checking storage availability. A configured `/mnt/ALIEN/PROJECTS/123_PROJECT`
+can resolve to existing `/mnt/alien/projects/123_PROJECT` without changing the
+project name. Exact existing roots retain priority; ambiguous matches and
+access errors propagate. Core remains optional for exact schema0 paths. Install
+`nl_sgtk[core]` with Core 1.5.3.0 or newer for native sessions.
