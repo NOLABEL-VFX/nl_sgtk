@@ -70,7 +70,7 @@ def test_dictionary_session_is_opt_in_without_mutating_cached_payload(
 
 
 def test_native_session_and_invalid_configuration(tmp_path, monkeypatch):
-    import nl_core
+    nl_core = pytest.importorskip("nl_core", reason="Optional Core integration")
     from nl_core.cache import RuntimeCache
     from nl_core.errors import ConfigError
 

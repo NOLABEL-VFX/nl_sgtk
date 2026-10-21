@@ -2,6 +2,8 @@
 
 import pytest
 
+pytest.importorskip("nl_core", reason="Optional Core Prepro integration")
+
 from nl_sgtk.provider import NlSgtkProvider
 
 

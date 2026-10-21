@@ -40,6 +40,9 @@ Those production behaviors were already deployed before this release.
 
 - Windows Python 3.12.9: all 177 tests passed; four Linux-only cases skipped.
 - Validation tests use injected tracker clients and do not publish real data.
+- Standalone CI marks tests requiring optional Core as skipped when that
+  package is absent. The complete 177-test validation above includes Core
+  1.6.2.0 and does not skip any of those integrations.
 - Release source syntax is checked against the declared Python 3.8 minimum.
 - Wheel/runtime checks and fresh shared-import test results are retained
   with the deployment audit and SHA-256 backup manifest.

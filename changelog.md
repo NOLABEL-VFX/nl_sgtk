@@ -13,6 +13,8 @@
 - Add noninteractive authentication and project-local Prepro regression
   tests, preserving the previously deployed behavior and shared hotfixes.
 - See [publishing contracts and validation](docs/publish_contract_20261021.md).
+- Standalone CI skips optional Core integration tests when Core is absent;
+  the full release was validated with deployed Core 1.6.2.0.
 
 ## 1.6.1.1 - 2026-10-13
 

@@ -32,6 +32,7 @@ def test_missing_root_without_core_remains_missing(
 
 
 def test_optional_core_checks_existing_linux_spelling(tmp_path: Path) -> None:
+    pytest.importorskip("nl_core", reason="Optional Core integration")
     actual = tmp_path / "alien/projects/123_PROJECT"
     actual.mkdir(parents=True)
     configured = tmp_path / "ALIEN/PROJECTS/123_PROJECT"
@@ -43,6 +44,7 @@ def test_optional_core_checks_existing_linux_spelling(tmp_path: Path) -> None:
 def test_provider_normalizes_storage_case(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pytest.importorskip("nl_core", reason="Optional Core integration")
     actual = tmp_path / "alien/projects/123_PROJECT"
     actual.mkdir(parents=True)
     configured = tmp_path / "ALIEN/PROJECTS/123_PROJECT"
