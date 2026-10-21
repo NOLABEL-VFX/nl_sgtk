@@ -19,6 +19,9 @@ from .nl_sgtk import SHOTGRID_URL, get_storages, parse_link, sgtk_login, verify_
 
 log = logging.getLogger(__name__)
 
+MIN_DESCRIPTION_LENGTH = 3
+"""Minimum publish description length after trimming outer whitespace."""
+
 _VERSION_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9])(?P<full>v0{0,4}(?P<num>[1-9][0-9]{0,4}))(?![A-Za-z0-9])"
 )
@@ -161,6 +164,8 @@ class ShotgunPublish:
     keeps the same common setters while adding explicit trust/validation
     overrides for JSON-driven or already-verified publish payloads.
     """
+
+    MIN_DESCRIPTION_LENGTH = MIN_DESCRIPTION_LENGTH
 
     SCRIPT = "sg_path_to_script"
     MOVIE = "sg_path_to_movie"
@@ -692,8 +697,12 @@ class ShotgunPublish:
             raise ValueError("No files to publish.")
         if not self.version["code"]:
             raise ValueError("No version name set.")
-        if not self.version["description"] or len(self.version["description"]) < 5:
-            raise ValueError("Invalid description.")
+        description = (self.version["description"] or "").strip()
+        if len(description) < self.MIN_DESCRIPTION_LENGTH:
+            raise ValueError(
+                "Description must contain at least "
+                f"{self.MIN_DESCRIPTION_LENGTH} characters."
+            )
         if self.version["sg_first_frame"] is None or self.version["sg_last_frame"] is None:
             raise ValueError("Frame range is not set.")
         if not self.version["project"]:
@@ -818,6 +827,13 @@ class ShotgunPublish:
 
     def publish(self, validate: bool = True, upload_preview: bool = True, *,
                 registration: str = "auto") -> Dict[str, Any]:
+        """Register validated files, retaining unsupported entities via Task.
+
+        Side Effects:
+            Writes tracker records, optional uploads and local publish state.
+            Version.entity follows the site's allowed entity types; the
+            original entity remains in context for local manifests.
+        """
         if registration not in {"auto", "local", "tracker"}:
             raise ValueError("registration must be auto, local or tracker")
         sources = getattr(self, "version", {})
@@ -844,6 +860,15 @@ class ShotgunPublish:
             self.validate(require_preview=upload_preview)
 
         version_payload = self.retrieve_version_info(validate=False)
+        schema_reader = getattr(self.sg, "schema_field_read", None)
+        if callable(schema_reader):
+            valid_types = schema_reader("Version").get("entity", {}).get(
+                "properties", {}).get("valid_types", {}).get("value", [])
+            entity = version_payload.get("entity") or {}
+            if valid_types and entity.get("type") not in valid_types:
+                if not version_payload.get("sg_task"):
+                    raise ValueError("Unsupported entity requires a Task")
+                version_payload["entity"] = None
         self._register_publish_state("publishing", payload=version_payload)
 
         try:

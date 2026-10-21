@@ -22,11 +22,13 @@ class NlSgtkProvider:
 
     def __init__(
         self, sg: Any = None, user: Optional[Mapping[str, Any]] = None,
+        *, allow_interactive: Optional[bool] = None,
     ) -> None:
         self._sg: Any = sg
         self._user: Optional[Dict[str, Any]] = (
             dict(user) if user is not None else None)
         self._connections = threading.local()
+        self.allow_interactive = allow_interactive
         self._storages: Optional[List[Dict[str, Any]]] = None
         self._storage_lock = threading.Lock()
 
@@ -185,13 +187,14 @@ class NlSgtkProvider:
         result = []
         for row in rows:
             code = str(row.get("code") or "")
-            numbers = re.findall(r"(?:^|[_\.-])v(\d+)(?:$|[_\.-])", code,
-                                 flags=re.IGNORECASE)
+            from .publish_manifests import _version_identity
+
+            version, variant, label = _version_identity(code)
             paths = [row.get(field) for field in (
                 "sg_path_to_frames", "sg_path_to_geometry",
                 "sg_path_to_script", "sg_path_to_movie") if row.get(field)]
             result.append(dict(row, record_type="Version", source=self.name,
-                version_number=int(numbers[-1]) if numbers else 0,
+                version_number=version, variant=variant, version_label=label,
                 step_code=str(step or row.get("sg_task.Task.step.Step.short_name") or ""),
                 publish_uuid=row.get("sg__publish_uuid"),
                 path=paths[0].split(";")[0] if paths else ""))
@@ -595,6 +598,36 @@ class NlSgtkProvider:
         entity = context.get("entity")
         if (
             isinstance(entity, Mapping)
+            and entity.get("type") == "CustomThreadedEntity01"
+            and entity.get("id")
+        ):
+            from nl_core.naming import retokenize_name
+
+            prepro = sg.find_one(
+                "CustomThreadedEntity01",
+                [["id", "is", int(entity["id"])]],
+                ["code", "project", "sg_type_2_0"],
+            ) or {}
+            libraries = prepro.get("sg_type_2_0") or []
+            # Legacy projects without this policy can still resolve. New
+            # configurations reject unavailable tokens before publishing.
+            if len(libraries) == 1:
+                library = sg.find_one(
+                    "CustomEntity08", [["id", "is", libraries[0]["id"]]],
+                    ["code", "project"],
+                ) or {}
+                if (library.get("project") or {}).get("id") != (
+                    project.get("id")
+                ):
+                    raise ValueError(
+                        "Prepro library belongs to another project")
+                context["prepro"] = {
+                    "name": retokenize_name(prepro["code"]),
+                    "library": retokenize_name(library["code"]),
+                    "library_id": library["id"],
+                }
+        if (
+            isinstance(entity, Mapping)
             and entity.get("type") == "Asset"
             and entity.get("id")
         ):
@@ -731,17 +764,70 @@ class NlSgtkProvider:
         ]
         return matching or publishes
 
+    def resume_publish(self, context: Any, request: Mapping[str, Any],
+                       receipt: Mapping[str, Any], checkpoint: Any
+                       ) -> Mapping[str, Any]:
+        """Resume UUID registration with durable upload checkpoints.
+
+        Side Effects:
+            Creates/reuses a Version, uploads media and writes checkpoint
+            receipts through the supplied callback after each remote stage.
+        """
+        payload = dict(request, _recovery_receipt=dict(receipt),
+                       _recovery_checkpoint=checkpoint)
+        return self.register_publish(context, payload)
+
     def register_publish(
         self,
         context: Any,
         request: Mapping[str, Any],
     ) -> Mapping[str, Any]:
-        """Register a Version with classified output and source paths."""
+        """Register a Version with classified output and source paths.
+
+        Args:
+            context: Validated Core Task context.
+            request: Publication data; metadata.has_slate is an optional bool.
+        Returns:
+            Created or reused Version and its publication snapshot.
+        Side Effects:
+            Writes tracker records and optionally uploads the preview.
+        """
 
         from .publisher import ShotgunPublish
 
+        metadata = request.get("metadata")
+        if metadata is None:
+            metadata = {}
+        if not isinstance(metadata, Mapping):
+            raise ValueError("metadata must be a mapping")
+        if "has_slate" in metadata and not isinstance(
+                metadata["has_slate"], bool):
+            raise ValueError("metadata.has_slate must be a boolean")
+        file_roles = metadata.get("file_roles", {})
+        if not isinstance(file_roles, Mapping):
+            raise ValueError("metadata.file_roles must be a path/field mapping")
+        roles = {}
+        for path, field in file_roles.items():
+            if field not in ShotgunPublish.FILE_FIELDS:
+                raise ValueError("Unsupported explicit publish file role")
+            key = _normalized_path(str(path))
+            if key in roles and roles[key] != field:
+                raise ValueError("Conflicting explicit publish file roles")
+            roles[key] = field
+
         sg, user = self._connection()
+        author = request.get("author") or {}
+        if author:
+            filters = ([["id", "is", int(author["id"])]] if author.get("id")
+                       else [["login", "is", str(author.get("login") or "")]])
+            matches = sg.find("HumanUser", filters, ["name", "login"], limit=2)
+            if len(matches) != 1:
+                raise ValueError("Publish author cannot be uniquely verified")
+            user = matches[0]
         publisher = ShotgunPublish(sg=sg, user=user)
+        if author:
+            publisher.version["user"] = {"type": "HumanUser",
+                                         "id": int(user["id"])}
         # Core owns the durable outbox and its manifest write in this path.
         publisher.write_publish_manifest = False
         publish_uuid = str(request["publish_uuid"])
@@ -762,13 +848,14 @@ class NlSgtkProvider:
         )
         publisher.set_version_name(str(request["version_code"]))
         publisher.set_description(str(request.get("description") or ""))
-        if request.get("metadata"):
+        if metadata:
             import json
-            publisher.set_metadata(json.dumps(request["metadata"],
-                                              sort_keys=True))
-            vendor = request["metadata"].get("vendor")
+            publisher.set_metadata(json.dumps(metadata, sort_keys=True))
+            vendor = metadata.get("vendor")
             if vendor:
                 publisher.set_vendor_by_data(vendor)
+            if "has_slate" in metadata:
+                publisher.movie_has_slate(metadata["has_slate"])
         publisher.version["sg_dependiencies"] = [
             dict(link) for link in request.get("dependencies", ())]
         first_frame = request.get("first_frame")
@@ -776,41 +863,37 @@ class NlSgtkProvider:
         if first_frame is not None and last_frame is not None:
             publisher.set_frame_range(int(first_frame), int(last_frame))
         for path in request.get("files", []):
-            publisher.add_file(str(path))
+            role = roles.get(_normalized_path(str(path)))
+            if role:
+                publisher.add_file(str(path), force_version_field=role)
+            else:
+                publisher.add_file(str(path))
         preview = request.get("preview")
         if preview:
             publisher.set_preview_file(str(preview))
+        receipt = request.get("_recovery_receipt") or {}
+        checkpoint = request.get("_recovery_checkpoint", lambda value: None)
         existing = self._find_existing_version(sg, context, request)
-        if existing is not None:
-            if preview:
-                sg.upload(
-                    "Version",
-                    int(existing["id"]),
-                    str(preview),
-                    "sg_uploaded_movie",
-                )
-            if publisher.published_files_enabled():
-                self._ensure_published_files(
-                    sg,
-                    publisher,
-                    existing,
-                    request,
-                )
+        if existing is None:
+            general = bool(request.get("general_publish"))
+            if general and not all(str(request.get(key) or "").strip()
+                                   for key in ("version_code", "description")):
+                raise ValueError("Version name and description are required")
+            result = publisher.publish(
+                validate=not general, upload_preview=False,
+                registration="tracker")
+        else:
             result = dict(existing)
-            result["sg__publish_uuid"] = publish_uuid
-            result["reused"] = True
-            result["publish_manifest"] = self._publish_manifest(sg, result, context)
-            return result
-
-        result = publisher.publish(
-            validate=True,
-            upload_preview=bool(preview),
-            registration="tracker",
-        )
+        checkpoint({"version_id": int(result["id"])})
+        if preview and receipt.get("preview_version_id") != result["id"]:
+            sg.upload("Version", int(result["id"]), str(preview),
+                      "sg_uploaded_movie")
+            checkpoint({"preview_version_id": int(result["id"])})
         if publisher.published_files_enabled():
             self._ensure_published_files(sg, publisher, result, request)
+            checkpoint({"published_files_version_id": int(result["id"])})
         result["sg__publish_uuid"] = publish_uuid
-        result["reused"] = False
+        result["reused"] = existing is not None
         result["publish_manifest"] = self._publish_manifest(sg, result, context)
         return result
 
@@ -862,7 +945,9 @@ class NlSgtkProvider:
         if connection is None:
             from .nl_sgtk import sgtk_login
 
-            sg, user = sgtk_login(product="nl_core")
+            sg, user = sgtk_login(
+                product="nl_core", allow_interactive=self.allow_interactive,
+                raise_on_error=True)
             if sg is None or user is None:
                 raise ConnectionError("nl_sgtk could not authenticate")
             connection = (sg, dict(user))
@@ -905,6 +990,12 @@ class NlSgtkProvider:
         task = {"type": "Task", "id": context.task.id}
         fields = ["code", "project", "sg_task", "sg__publish_uuid"]
         publish_uuid = str(request["publish_uuid"])
+        def accepted(found: Mapping[str, Any]) -> Dict[str, Any]:
+            """Never attach recovery uploads to another logical publish."""
+            if (request.get("_recovery_checkpoint") and
+                    found.get("sg__publish_uuid") != publish_uuid):
+                raise ValueError("Publish name/path belongs to another UUID")
+            return dict(found)
         version = sg.find_one(
             "Version",
             [
@@ -915,7 +1006,7 @@ class NlSgtkProvider:
             fields,
         )
         if version:
-            return dict(version)
+            return accepted(version)
 
         for path in request.get("files", []):
             published = sg.find_one(
@@ -935,7 +1026,7 @@ class NlSgtkProvider:
                     fields,
                 )
                 if found:
-                    return dict(found)
+                    return accepted(found)
 
         code = str(request.get("version_code") or "")
         if not code:
@@ -949,7 +1040,7 @@ class NlSgtkProvider:
             ],
             fields,
         )
-        return dict(version) if version else None
+        return accepted(version) if version else None
 
     def _ensure_published_files(
         self,

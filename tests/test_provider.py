@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
 
+import pytest
+
 from nl_sgtk.provider import NlSgtkProvider
 
 
@@ -106,6 +108,8 @@ class FakeShotGrid:
 
 
 class FakePublisher:
+    FILE_FIELDS = ('sg_path_to_frames', 'sg_path_to_movie',
+                   'sg_path_to_geometry', 'sg_path_to_script')
     publish_calls = 0
     enable_published_files = False
 
@@ -124,12 +128,20 @@ class FakePublisher:
     def set_description(self, description: str) -> None:
         self.version["description"] = description
 
+    def set_metadata(self, metadata: str) -> None:
+        self.version["sg_metadata"] = metadata
+
+    def movie_has_slate(self, value: bool) -> None:
+        self.version["sg_movie_has_slate"] = value
+
     def set_frame_range(self, first_frame: int, last_frame: int) -> None:
         self.version["sg_first_frame"] = first_frame
         self.version["sg_last_frame"] = last_frame
 
-    def add_file(self, path: str) -> None:
-        del path
+    def add_file(self, path: str, force_version_field: Optional[str] = None
+                 ) -> None:
+        self.version.setdefault('classified_files', []).append(
+            (path, force_version_field))
 
     def set_preview_file(self, path: str) -> None:
         del path
@@ -189,6 +201,69 @@ def _context() -> Context:
         entity=Entity(2, "Shot"),
         task=Entity(3, "Task"),
     )
+
+
+def test_explicit_sidecar_role_is_forwarded_and_invalid_role_never_writes(
+    monkeypatch: Any,
+) -> None:
+    from nl_sgtk import publisher as publisher_module
+    monkeypatch.setattr(publisher_module, 'ShotgunPublish', FakePublisher)
+    sg = FakeShotGrid()
+    request = dict(_request(), files=['//rama/show/metadata.json'],
+        metadata={'file_roles': {
+            '//rama/show/metadata.json': 'sg_path_to_script'}})
+    result = _provider(sg).register_publish(_context(), request)
+    assert result['classified_files'] == [
+        ('//rama/show/metadata.json', 'sg_path_to_script')]
+    invalid = dict(request, metadata={'file_roles': {
+        '//rama/show/metadata.json': 'arbitrary_field'}})
+    before = FakePublisher.publish_calls
+    with pytest.raises(ValueError, match='explicit publish file role'):
+        _provider(FakeShotGrid()).register_publish(_context(), invalid)
+    assert FakePublisher.publish_calls == before
+
+
+@pytest.mark.parametrize("metadata,error", [
+    ({"has_slate": "false"}, "has_slate must be a boolean"),
+    ({"has_slate": 0}, "has_slate must be a boolean"),
+    ({"has_slate": 1}, "has_slate must be a boolean"),
+    ({"has_slate": None}, "has_slate must be a boolean"),
+    ({"file_roles": []}, "path/field mapping"),
+    ({"file_roles": None}, "path/field mapping"),
+    ({"file_roles": {"sidecar": "arbitrary_field"}}, "file role"),
+    ({"file_roles": {"//rama/sidecar": "sg_path_to_script",
+                     "//RAMA/sidecar": "sg_path_to_frames"}},
+     "Conflicting explicit publish file roles"),
+    (["invalid"], "metadata must be a mapping"),
+    ([], "metadata must be a mapping"),
+    (False, "metadata must be a mapping"),
+])
+def test_invalid_publish_metadata_fails_before_authentication(
+    monkeypatch, metadata, error,
+):
+    provider = NlSgtkProvider()
+
+    def forbidden():
+        raise AssertionError("Invalid metadata must not authenticate")
+
+    monkeypatch.setattr(provider, "_connection", forbidden)
+    with pytest.raises(ValueError, match=error):
+        provider.register_publish(_context(),
+                                  dict(_request(), metadata=metadata))
+
+
+def test_explicit_roles_preserve_mixed_files_and_automatic_fallback(monkeypatch):
+    from nl_sgtk import publisher as publisher_module
+
+    monkeypatch.setattr(publisher_module, "ShotgunPublish", FakePublisher)
+    files = ["//rama/show/%d.sidecar" % i for i in range(4)]
+    roles = dict(zip(files, FakePublisher.FILE_FIELDS))
+    roles = {path.replace("/", "\\"): field for path, field in roles.items()}
+    files.append("//rama/show/automatic.exr")
+    result = _provider(FakeShotGrid()).register_publish(
+        _context(), dict(_request(), files=files, metadata={"file_roles": roles}))
+    assert result["classified_files"] == [
+        *zip(files[:4], FakePublisher.FILE_FIELDS), (files[4], None)]
 
 
 def test_existing_uuid_reuses_version_without_published_file_by_default(
@@ -293,3 +368,59 @@ def test_task_fetch_hydrates_step_short_code(monkeypatch: Any) -> None:
     payload = _provider(sg).fetch_task(30)
 
     assert payload["step"]["code"] == "comp"
+
+
+@pytest.mark.parametrize("has_slate", [True, False])
+def test_core_vendor_preserves_explicit_slate(monkeypatch, has_slate):
+    """Persist both checked and unchecked slate flags through Core."""
+    from nl_sgtk import publisher as publisher_module
+
+    sg = FakeShotGrid()
+    monkeypatch.setattr(publisher_module, "ShotgunPublish", FakePublisher)
+    request = dict(_request(), metadata={"has_slate": has_slate})
+    result = _provider(sg).register_publish(_context(), request)
+    assert result["sg_movie_has_slate"] is has_slate
+    repeated = _provider(sg).register_publish(_context(), request)
+    assert repeated["sg_movie_has_slate"] is has_slate
+    assert repeated["reused"]
+
+
+def test_core_vendor_rejects_non_boolean_slate(monkeypatch):
+    from nl_sgtk import publisher as publisher_module
+
+    sg = FakeShotGrid()
+    monkeypatch.setattr(publisher_module, "ShotgunPublish", FakePublisher)
+    with pytest.raises(ValueError, match="must be a boolean"):
+        _provider(sg).register_publish(_context(),
+            dict(_request(), metadata={"has_slate": "false"}))
+    assert sg.existing is None
+
+
+def test_recovery_keeps_version_and_completed_upload(monkeypatch):
+    """Reuse a Version and skip a durably acknowledged upload on replay."""
+    from nl_sgtk import publisher as publisher_module
+    from unittest.mock import Mock
+
+    sg = FakeShotGrid()
+    sg.upload = Mock()
+    monkeypatch.setattr(publisher_module, "ShotgunPublish", FakePublisher)
+    FakePublisher.publish_calls = 0
+    receipt = {}
+    provider = _provider(sg)
+    request = dict(_request(), preview="movie.mov")
+    provider.resume_publish(_context(), request, receipt, receipt.update)
+    provider.resume_publish(_context(), request, receipt, receipt.update)
+    assert FakePublisher.publish_calls == 1
+    sg.upload.assert_called_once_with(
+        "Version", 99, "movie.mov", "sg_uploaded_movie")
+    assert receipt["preview_version_id"] == 99
+
+
+def test_recovery_rejects_another_uuid(monkeypatch):
+    """Never attach recovered media to another artist's logical publish."""
+    from nl_sgtk import publisher as publisher_module
+
+    sg = FakeShotGrid({"id": 50, "sg__publish_uuid": "someone-else"})
+    monkeypatch.setattr(publisher_module, "ShotgunPublish", FakePublisher)
+    with pytest.raises(ValueError, match="another UUID"):
+        _provider(sg).resume_publish(_context(), _request(), {}, lambda x: None)

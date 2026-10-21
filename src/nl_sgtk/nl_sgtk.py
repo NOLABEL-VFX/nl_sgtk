@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "1.5.1.0"
+__version__ = "1.7.0.0"
 
 try:
     notify_if_update_available(__version__)
@@ -437,9 +437,23 @@ def get_user():
     sg, user = sgtk_login()
     return user
 
+class TrackerAuthenticationError(ConnectionError):
+    """Authentication is missing or invalid; no login UI was permitted."""
+
+
+def _interactive_allowed(allow_interactive: Optional[bool] = None) -> bool:
+    if os.getenv("NL_SGTK_ALLOW_INTERACTIVE", "1").lower() in (
+            "0", "false", "no"):
+        return False
+    if allow_interactive is None:
+        return threading.current_thread() is threading.main_thread()
+    return bool(allow_interactive)
+
+
 def ensure_sgtk_user(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
+    *, allow_interactive: Optional[bool] = None,
 ) -> Optional[sgtk.authentication.ShotgunUser]:
     """
     Return the default SGTK user if available.
@@ -450,6 +464,9 @@ def ensure_sgtk_user(
     user = authenticator.get_default_user()
     if user:
         return user
+    if not _interactive_allowed(allow_interactive):
+        raise TrackerAuthenticationError(
+            "ShotGrid authentication required; interactive login is disabled")
 
     # Trigger interactive login + cache session
     log.info("No default SGTK user found. Launching interactive login for %s", product)
@@ -483,6 +500,8 @@ def launch_interactive_login(
     the thread guard; it does not dispatch to the main thread or make Qt
     operations thread-safe. Authentication and session caching still run.
     """
+    if not _interactive_allowed(True):
+        raise TrackerAuthenticationError("Interactive login is disabled")
     if not force and threading.current_thread() is not threading.main_thread():
         raise RuntimeError(
             'ShotGrid sign-in is required. Sign in from the main '
@@ -503,14 +522,21 @@ def launch_interactive_login(
 def build_shotgun_connection_from_user(
     user: sgtk.authentication.ShotgunUser,
     base_url: str = SHOTGRID_URL,
+    *, allow_interactive: Optional[bool] = None,
 ) -> shotgun.Shotgun:
     """
     Create a shotgun_api3.Shotgun instance using the user's session token.
     """
-    sg_sgtk = user.create_sg_connection()
-    token = sg_sgtk.get_session_token()
+    if _interactive_allowed(allow_interactive):
+        sg_sgtk = user.create_sg_connection()
+        token = sg_sgtk.get_session_token()
+    else:
+        # Toolkit's connection wrapper can renew an expired session via UI.
+        # Read the saved token directly and validate with the raw API client.
+        getter = getattr(user.impl, "get_session_token", None)
+        token = getter() if getter else None
     if not token:
-        raise RuntimeError("SGTK connection did not provide a session token.")
+        raise TrackerAuthenticationError("No saved ShotGrid session token")
 
     return shotgun.Shotgun(base_url, session_token=token)
 
@@ -532,6 +558,7 @@ def validate_connection(sg: shotgun.Shotgun) -> bool:
 def _sgtk_login_uncached(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
+    *, allow_interactive: Optional[bool] = None,
 ) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
     """
     Run ShotGrid login flow and return validated (sg, user).
@@ -542,22 +569,30 @@ def _sgtk_login_uncached(
     configured or fails.
     """
     script_name, script_key = _script_credentials()
+    interactive = _interactive_allowed(allow_interactive)
     if script_name and script_key:
         try:
             return _script_login(base_url=base_url)
         except Exception as exc:
+            if not interactive:
+                raise
             log.warning("Script login failed, falling back to SGTK user login: %s", exc)
 
-    user = ensure_sgtk_user(base_url=base_url, product=product)
+    user = ensure_sgtk_user(base_url=base_url, product=product,
+                            allow_interactive=interactive)
     if not user:
         raise RuntimeError("User authentication failed: no default user after login.")
 
-    sg = build_shotgun_connection_from_user(user, base_url=base_url)
+    sg = build_shotgun_connection_from_user(
+        user, base_url=base_url, allow_interactive=interactive)
 
     try:
         if not validate_connection(sg):
             raise RuntimeError("User test failed: connection works but query returned no results.")
     except shotgun.AuthenticationFault as e:
+        if not interactive:
+            raise TrackerAuthenticationError(
+                "Saved ShotGrid session is invalid or expired") from e
         log.warning("ShotGrid session needs refresh: %s", e)
         launch_interactive_login(base_url=base_url, product=product)
         user = ensure_sgtk_user(base_url=base_url, product=product)
@@ -584,20 +619,26 @@ def _sgtk_login_uncached(
 def _sgtk_login_cached(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
+    *, allow_interactive: Optional[bool] = None,
 ) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
-    return _sgtk_login_uncached(base_url=base_url, product=product)
+    return _sgtk_login_uncached(base_url=base_url, product=product,
+                                allow_interactive=allow_interactive)
 
 
 def sgtk_login(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
+    *, allow_interactive: Optional[bool] = None,
+    raise_on_error: bool = False,
 ) -> Tuple[Optional[shotgun.Shotgun], Optional[Dict[str, Any]]]:
     """
     Returns (sg, user) on success, otherwise (None, None).
     Only successful results are cached.
     """
     try:
-        sg, user = _sgtk_login_cached(base_url=base_url, product=product)
+        sg, user = _sgtk_login_cached(
+            base_url=base_url, product=product,
+            allow_interactive=_interactive_allowed(allow_interactive))
         try:
             update_user_cache(sg, user, base_url=base_url)
         except Exception as cache_exc:
@@ -612,6 +653,11 @@ def sgtk_login(
             log.exception("SGTK/ShotGrid auth failed: %s", exc)
         else:
             log.warning("Background ShotGrid login deferred: %s", exc)
+        if raise_on_error:
+            if isinstance(exc, shotgun.AuthenticationFault):
+                raise TrackerAuthenticationError(
+                    "ShotGrid credentials were rejected") from exc
+            raise
         return None, None
 
 def get_user_tasks(user: Dict[str, Any], sg=None) -> List[Dict[str, Any]]:
@@ -867,4 +913,4 @@ def parse_link(link: str, sg=None) -> Optional[Dict[str, Any]]:
     return _fetch_entity_context(sg, entity_type, entity_id)
 
 
-from .publisher import ShotgunPublish  # noqa: E402
+from .publisher import MIN_DESCRIPTION_LENGTH, ShotgunPublish  # noqa: E402

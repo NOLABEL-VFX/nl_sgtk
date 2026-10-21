@@ -9,6 +9,37 @@ from nl_sgtk.publish_manifests import version_snapshot
 from nl_sgtk.publisher import ShotgunPublish
 
 
+@pytest.mark.parametrize('code,expected', [
+    ('shot_comp_v005a', (5, 'a', 'v005a')),
+    ('shot_comp_V012B.exr', (12, 'b', 'v012b')),
+    ('shot_v001a_v006b_render', (6, 'b', 'v006b')),
+    ('shot_v003', (3, '', 'v003')),
+    ('shot-v002-a', (2, '', 'v002')),
+    ('shot_v005abc', (0, '', '')),
+    ('v005a', (5, 'a', 'v005a')),
+    ('shot.v001.v005a.mov', (5, 'a', 'v005a')),
+    ('shot_v005a_v006', (6, '', 'v006')),
+    ('shot_v005a_v006abc', (5, 'a', 'v005a')),
+    ('versionless', (0, '', '')),
+])
+def test_variant_identity_matches_provider_catalog(monkeypatch, code, expected):
+    from nl_sgtk.provider import NlSgtkProvider
+
+    row = {'id': 42, 'code': code, 'project': {'id': 1},
+           'sg_task': {'id': 2}, 'sg_path_to_script': 'fixture.psd'}
+    snapshot = version_snapshot(row, 'https://studio.example')
+    assert (snapshot['version'], snapshot['variant'],
+            snapshot['version_label']) == expected
+    provider = NlSgtkProvider()
+    sg = SimpleNamespace(find=lambda *args, **kwargs: [row])
+    monkeypatch.setattr(provider, '_connection', lambda: (sg, {}))
+    context = SimpleNamespace(project=SimpleNamespace(id=1),
+        task=SimpleNamespace(id=2), entity=SimpleNamespace(type='Shot', id=3))
+    result = provider.find_references(context, {'kind': 'publish'})[0]
+    assert (result['version_number'], result['variant'],
+            result['version_label']) == expected
+
+
 def test_legacy_uuid_is_deterministic_and_sources_remain_separate():
     row = {"id": 42, "code": "asset_reference_v012",
            "project": {"id": 1}, "sg_task": {"id": 2},

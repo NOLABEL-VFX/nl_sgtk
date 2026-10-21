@@ -15,6 +15,17 @@ VERSION_FIELDS = ["code", "project", "entity", "sg_task", "sg__publish_uuid",
                   *SOURCE_FIELDS.values()]
 
 
+def _version_identity(code: str) -> tuple[int, str, str]:
+    """Read the last numeric version and optional single-letter variant."""
+    matches = re.findall(
+        r"(?:^|[_.-])v(\d+)([a-z]?)(?=$|[_.-])", code, re.I)
+    if not matches:
+        return 0, "", ""
+    digits, variant = matches[-1]
+    variant = variant.lower()
+    return int(digits), variant, "v" + digits + variant
+
+
 def version_snapshot(row: Mapping[str, Any], tracker: str, *,
                      local_only: bool = False) -> dict[str, Any]:
     """Use the stored publish UUID or a deterministic legacy Version UUID."""
@@ -32,12 +43,12 @@ def version_snapshot(row: Mapping[str, Any], tracker: str, *,
         metadata = {}
     if not isinstance(metadata, dict):
         metadata = {}
-    versions = re.findall(r"(?:^|[_.-])v(\d+)(?:$|[_.-])", code, re.I)
+    version, variant, label = _version_identity(code)
     return {"publish_uuid": identity, "code": code, "metadata": metadata,
         "sync_state": "local_only" if local_only else "registered",
         "project_id": (row.get("project") or {}).get("id"),
         "task_id": (row.get("sg_task") or {}).get("id"),
-        "version": int(versions[-1]) if versions else 0,
+        "version": version, "variant": variant, "version_label": label,
         "status": row.get("sg_status_list") or "",
         "first_frame": row.get("sg_first_frame"),
         "last_frame": row.get("sg_last_frame"),

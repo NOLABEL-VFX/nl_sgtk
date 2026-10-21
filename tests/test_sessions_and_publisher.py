@@ -25,6 +25,33 @@ class CopyableConnection:
         self.state: Dict[str, Any] = {"requests": []}
 
 
+def test_custom_entity_version_keeps_exact_task(monkeypatch):
+    """A site-restricted Version entity link retains the validated Task."""
+    from nl_sgtk.publisher import ShotgunPublish
+    from unittest.mock import Mock
+
+    publisher = ShotgunPublish.__new__(ShotgunPublish)
+    publisher.publish_uuid = "custom"
+    publisher.version = {"project": {"type": "Project", "id": 1},
+                         "entity": {"type": "CustomEntity42", "id": 2},
+                         "sg_task": {"type": "Task", "id": 3}}
+    publisher.write_publish_manifest = False
+    publisher.sg = SimpleNamespace(
+        schema_field_read=lambda kind: {"entity": {"properties": {
+            "valid_types": {"value": ["Shot", "Asset"]}}}},
+        create=Mock(return_value={"id": 99}))
+    monkeypatch.setattr(publisher, "retrieve_version_info",
+                        lambda **kwargs: dict(publisher.version))
+    monkeypatch.setattr(publisher, "_register_publish_state", Mock())
+    monkeypatch.setattr(publisher, "published_files_enabled", lambda: False)
+    publisher.publish(validate=False, upload_preview=False,
+                      registration="tracker")
+    payload = publisher.sg.create.call_args.args[1]
+    assert payload["entity"] is None
+    assert payload["sg_task"] == {"type": "Task", "id": 3}
+    assert publisher.version["entity"]["type"] == "CustomEntity42"
+
+
 def test_sgtk_login_returns_independent_copies(monkeypatch: Any) -> None:
     from nl_sgtk import nl_sgtk as api
 
@@ -92,3 +119,69 @@ def test_published_files_feature_flag_is_disabled() -> None:
 
     assert published_files_enabled() is False
     assert published_files_enabled({"sg_enable_published_files": True}) is False
+
+
+def test_publish_description_length_is_a_public_contract() -> None:
+    from nl_sgtk import MIN_DESCRIPTION_LENGTH
+    from nl_sgtk.publisher import ShotgunPublish
+
+    assert MIN_DESCRIPTION_LENGTH == 3
+    assert ShotgunPublish.MIN_DESCRIPTION_LENGTH == MIN_DESCRIPTION_LENGTH
+
+
+@pytest.mark.parametrize("description", ["", "ab", "  ab  ", "     ",
+                                         "\t\nab\n", "\u00a0ab\u00a0"])
+def test_publish_validation_rejects_short_trimmed_description(
+    description: str,
+) -> None:
+    from nl_sgtk.publisher import ShotgunPublish
+
+    publisher = ShotgunPublish.__new__(ShotgunPublish)
+    publisher.version = {
+        key: [] for key in ShotgunPublish.FILE_FIELDS
+    }
+    publisher.version[ShotgunPublish.FRAMES] = ["render.exr"]
+    publisher.version.update({
+        "code": "shot_comp_v001",
+        "description": description,
+        "sg_first_frame": 1,
+        "sg_last_frame": 1,
+        "project": {"type": "Project", "id": 1},
+        "entity": {"type": "Shot", "id": 2},
+        "sg_task": {"type": "Task", "id": 3},
+    })
+    publisher.script_user = None
+    publisher.script_key = None
+    publisher.user = None
+    publisher.preview = None
+
+    with pytest.raises(ValueError, match="at least 3 characters"):
+        publisher.validate(require_preview=False)
+
+
+@pytest.mark.parametrize("description", ["abc", "  abc  ", "\tzaż\n"])
+def test_publish_validation_accepts_minimum_description_length(
+    description: str,
+) -> None:
+    from nl_sgtk.publisher import ShotgunPublish
+
+    publisher = ShotgunPublish.__new__(ShotgunPublish)
+    publisher.version = {
+        key: [] for key in ShotgunPublish.FILE_FIELDS
+    }
+    publisher.version[ShotgunPublish.FRAMES] = ["render.exr"]
+    publisher.version.update({
+        "code": "shot_comp_v001",
+        "description": description,
+        "sg_first_frame": 1,
+        "sg_last_frame": 1,
+        "project": {"type": "Project", "id": 1},
+        "entity": {"type": "Shot", "id": 2},
+        "sg_task": {"type": "Task", "id": 3},
+    })
+    publisher.script_user = None
+    publisher.script_key = None
+    publisher.user = None
+    publisher.preview = None
+
+    publisher.validate(require_preview=False)

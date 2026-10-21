@@ -28,6 +28,12 @@ frames/movie/geometry/script source roles and supplies stable UUIDs for legacy
 Versions without one. `retrieve_version_info(resolve_dependencies=False)`
 avoids tracker dependency lookup during local-only completion.
 
+Core publication snapshots and `find_references(..., {"kind": "publish"})`
+use the same version parser. In 1.7.0.0, `comp_v005a` becomes numeric version
+5, variant `a` and label `v005a`. The last valid version token wins; an
+optional single-letter suffix is normalized to lowercase. Codes without a
+valid version retain 0 and empty variant/label.
+
 Existing `export_to_json()` exports an import payload to a caller-selected
 path and records it in the machine-local SQLite log. It is unchanged and does
 not itself constitute a completed shared local publication.
@@ -92,13 +98,23 @@ path channels, exact Task/Project, author and Group tags) and
 ownership returns all candidates; directory or filename-only guesses do not
 select a Task. `fetch_task()` includes the project's `sg_structure_map`.
 
-- `sgtk_login(base_url=SHOTGRID_URL, product=DEFAULT_PRODUCT)`
+- `sgtk_login(base_url=SHOTGRID_URL, product=DEFAULT_PRODUCT, *,
+  allow_interactive=None, raise_on_error=False)`
   - Returns `(sg, user)` on success, `(None, None)` on failure.
+    - `raise_on_error=True` preserves errors; rejected credentials raise
+      `TrackerAuthenticationError` with their original cause. Core providers
+      use this strict mode.
+    - `allow_interactive=False` prohibits login UI, Toolkit session renewal
+      and interactive fallback after script authentication fails. It uses
+      a saved token with a raw API client. `NL_SGTK_ALLOW_INTERACTIVE=0`
+      disables interaction globally, including explicit login/force calls.
+      The default allows interaction only on the main thread.
   - Caches the authenticated source session, then deep-copies the ShotGrid
     client and user data for each call so parallel callers do not share one
     mutable API client.
   - Uses script authentication first when both `STUDIO_SCRIPT_NAME` and `STUDIO_SCRIPT_KEY` are set.
   - Falls back to interactive SGTK user login otherwise.
+      Fallback runs only when interaction is allowed.
   - On every successful login, updates the current profile's `last_accessed`
     value in `~/.nolabel/local/nl_core/nl_core.sqlite3`. Rich non-secret user
     metadata (including department, permission rule set, groups, projects,
@@ -207,6 +223,9 @@ Import these from `nl_sgtk` or `nl_sgtk.tickets`.
 ## Publishing APIs
 
 - `ShotgunPublish(logger=None, script_user=None, script_key=None, override_user=None, sg=None, user=None, validate_paths=True, trusted=False)`
+  exposes `MIN_DESCRIPTION_LENGTH`, matching the module-level
+  `nl_sgtk.MIN_DESCRIPTION_LENGTH` publish-description validation contract:
+  at least 3 characters after trimming leading and trailing whitespace.
   - Creates ShotGrid `Version` records and related `PublishedFile` records.
   - Creates a unique publish UUID for each class instance and attaches it to the `sg__publish_uuid` Version field.
   - Supports script-user, injected ShotGrid connection, or normal `sgtk_login()` authentication.
@@ -407,9 +426,19 @@ make Qt operations thread-safe. Authentication and session caching are
 unchanged. Automatic calls through `sgtk_login` and `ensure_sgtk_user` retain
 the default guard.
 
-`sgtk_login` continues to return `(None, None)` on authentication failure;
+By default `sgtk_login` returns `(None, None)` on authentication failure;
 background callers should retain work for retry after user sign-in from
 the application window. Existing valid cached/script logins remain usable.
+
+
+### Core vendor slate metadata
+
+`NlSgtkProvider.register_publish(context, request)` accepts an optional
+boolean `request["metadata"]["has_slate"]`. Both `True` and `False` are passed
+to `ShotgunPublish.movie_has_slate` and stored in `Version.sg_movie_has_slate`.
+A non-boolean value fails before authentication or registration. Omitting
+the key preserves the publisher default; a UUID retry reuses the existing
+Version.
 
 ### Ticket project association during creation
 
@@ -418,13 +447,21 @@ association when schema metadata marks subsequent editing unavailable. Updates
 still require editable fields. Other field restrictions, enum validation and
 server-side authorization remain in force; failures preserve local diagnostics.
 Reference: https://developers.shotgridsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.schema_field_read
-# Launch thumbnails
 
-`NlSgtkProvider.list_launch_thumbnails(entity_type, entity_id, task_id=0)`
-returns optional HTTPS image URLs and labels in Task → entity → Project order.
-The Task image is used only when its entity link matches. Unsupported or
-unavailable image fields are skipped. This read-only API returns no image
-bytes, writes no cache and does not affect launch readiness.
+## Core project publish recovery
+
+`NlSgtkProvider.resume_publish(context, request, receipt, checkpoint)`
+resumes registration with the original UUID. `checkpoint(mapping)` must
+durably merge the acknowledged `version_id`, `preview_version_id` and
+optional `published_files_version_id`. UUID/name/path conflicts fail.
+A crash after remote upload but before acknowledgement can repeat the upload
+to the same Version. `request.author` is uniquely resolved by HumanUser ID
+or login; it never defaults to the automation service identity.
+`request.general_publish` retains General Publisher name/description
+validation. Core verifies files and Task membership before replay.
+Version.entity types unsupported by the site stay linked through sg_task.
+
+Public authentication helpers: ensure_sgtk_user(..., *, allow_interactive=None) and build_shotgun_connection_from_user(..., *, allow_interactive=None) use the same policy as sgtk_login. A noninteractive connection reads the saved token directly and cannot renew through Toolkit UI.
 
 ## Linux storage case fallback
 
@@ -435,3 +472,55 @@ can resolve to existing `/mnt/alien/projects/123_PROJECT` without changing the
 project name. Exact existing roots retain priority; ambiguous matches and
 access errors propagate. Core remains optional for exact schema0 paths. Install
 `nl_sgtk[core]` with Core 1.5.3.0 or newer for native sessions.
+
+## Explicit publish file roles
+
+`NlSgtkProvider.register_publish` accepts optional `metadata.file_roles`, a
+mapping from exact source paths to one of `sg_path_to_frames`,
+`sg_path_to_movie`, `sg_path_to_geometry` or `sg_path_to_script`. It uses the
+existing publisher's explicit classification override for interchange or
+workflow files whose extension is not configured in the studio. Unknown
+fields fail before authentication or registration. Existing classification
+remains the default. This does not create or modify PublishedFileTypes.
+
+## Launch thumbnails
+
+`NlSgtkProvider.list_launch_thumbnails(entity_type, entity_id, task_id=0)`
+returns optional HTTPS image URLs and labels in Task → entity → Project order.
+The Task image is used only when its entity link matches. Unsupported or
+unavailable image fields are skipped. This read-only API returns no image
+bytes, writes no cache and does not affect launch readiness.
+
+
+## Prepro task context
+
+`NlSgtkProvider.fetch_task()` enriches `CustomThreadedEntity01` task
+contexts with a `prepro` mapping containing portable `name`, `library`
+and `library_id`. It reads library links from `sg_type_2_0` and verifies
+that the single linked `CustomEntity08` belongs to the task's project.
+Missing or multiple links leave these tokens unavailable; enabled nl_core
+Prepro policies reject publication instead of guessing a destination.
+
+## Publish request validation (1.7.0.0)
+
+`metadata` is an optional mapping; omission or `None` means no overrides.
+`metadata.file_roles` must be a path-to-field mapping. Path matching uses
+the provider's portable slash/case normalization. Conflicting roles for the
+same normalized source are rejected; files without a role retain automatic
+classification. These checks and boolean `metadata.has_slate` validation
+run before obtaining a tracker connection or resolving an author.
+
+```python
+request["metadata"] = {
+    "file_roles": {"/projects/SHOW/work/scene.psd": "sg_path_to_script"},
+    "has_slate": False,
+}
+```
+
+`ShotgunPublish.validate()` counts the description after `.strip()` and
+requires `MIN_DESCRIPTION_LENGTH == 3`. Outer whitespace cannot make a
+short description valid. The supplied description text is retained.
+This standard validator retains its other file, context, range and preview
+checks. Explicit trusted/validation-bypass paths retain their existing
+contract, including General Publisher's required name/description check.
+These additions require no tracker schema migration.

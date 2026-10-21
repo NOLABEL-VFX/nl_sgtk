@@ -1,6 +1,25 @@
 # Changelog
 
-## 1.5.1.0 - 2026-10-12
+## 1.7.0.0 - 2026-10-21
+
+- Recognize single-letter version variants such as v005a consistently in
+  Core publication snapshots and reference catalogues.
+- Accept explicit source file roles through metadata.file_roles while
+  retaining automatic classification for other files.
+- Preserve explicit true/false movie slate flags. Reject malformed metadata,
+  unsupported roles and conflicting normalized roles before authentication.
+- Expose MIN_DESCRIPTION_LENGTH = 3; standard publication validation counts
+  characters after removing outer whitespace.
+- Add noninteractive authentication and project-local Prepro regression
+  tests, preserving the previously deployed behavior and shared hotfixes.
+- See [publishing contracts and validation](docs/publish_contract_20261021.md).
+
+## 1.6.1.1 - 2026-10-13
+
+- Resolve a single project-local Prepro Library into normalized Core task
+  context. Preserve the newer deployed 1.6.1 baseline and its APIs.
+
+## 1.6.1.0 - 2026-10-12
 
 - Linux project and launch paths retry filesystem case matching before being
   rejected as unavailable. Exact existing paths retain priority.
@@ -494,3 +513,19 @@ These entries were reconstructed from git commits, version declarations, and tag
 
 - Add lightweight Project launch resolution and cache LocalStorage mappings
   for low-latency NL Hub software menus.
+
+## Offline Projects rollout
+
+Add resumable UUID registration, original artist verification and upload checkpoints; retain custom entities via Task.
+
+
+## Integration corrections - 2026-10-09
+
+1.6.0.1: strict/noninteractive authentication, no interactive session renewal or script fallback on directrender. Retain independent shared version.
+
+## 1.5.1.0 - 2026-10-12
+
+- Linux project and launch paths retry filesystem case matching before being
+  rejected as unavailable. Exact existing paths retain priority.
+- Optional native Core sessions require Core 1.5.3.0 or newer; mounted storage
+  is still required and ambiguous directory names are reported.
