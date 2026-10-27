@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 log = logging.getLogger(__name__)
 
 # Keep a module version to align with setup.py
-__version__ = "1.7.0.0"
+__version__ = "1.7.0.2"
 
 try:
     notify_if_update_available(__version__)
@@ -438,7 +438,41 @@ def get_user():
     return user
 
 class TrackerAuthenticationError(ConnectionError):
-    """Authentication is missing or invalid; no login UI was permitted."""
+    """Authentication is unavailable, rejected or already being renewed."""
+
+
+class TrackerSessionExpiredError(TrackerAuthenticationError):
+    """A saved personal session was rejected; explicit renewal is needed."""
+
+
+_session_cache_lock = threading.Lock()
+_session_cache_epoch = 0
+_session_renewal_lock = threading.Lock()
+
+
+def _session_cache_generation() -> int:
+    """Read the process-local revision used to retire owned connections."""
+    with _session_cache_lock:
+        return _session_cache_epoch
+
+
+def invalidate_session_cache() -> None:
+    """Retire cached clients without changing saved SGTK credentials.
+
+    Call after a request reports rejected credentials or after an external
+    login updates the SGTK cache. Already returned clients cannot be changed;
+    callers must acquire a new connection before retrying their operation.
+
+    Side Effects:
+        Clears process-local login and status caches and advances their
+        revision. Provider-owned clients are replaced on their next use.
+        Performs no network requests, disk writes or interactive login.
+    """
+    global _session_cache_epoch
+    with _session_cache_lock:
+        _session_cache_epoch += 1
+        _sgtk_login_cached.cache_clear()
+        _status_map.cache_clear()
 
 
 def _interactive_allowed(allow_interactive: Optional[bool] = None) -> bool:
@@ -478,6 +512,25 @@ def ensure_sgtk_user(
     return user
 
 
+def _verify_saved_session(host: str, login: str, token: str) -> None:
+    """Require disk credentials and the default identity to match approval.
+
+    Raises:
+        TrackerAuthenticationError: Toolkit did not persist the approval.
+    """
+    cache = sgtk.authentication.session_cache
+    saved = cache.get_session_data(host, login)
+    saved_host = cache.get_current_host() or ""
+    saved_login = cache.get_current_user(host) or ""
+    same_host = saved_host.rstrip("/").casefold() == host.rstrip("/").casefold()
+    if (not token or not saved or saved.get("session_token") != token
+            or not same_host
+            or saved_login.casefold() != login.casefold()):
+        raise TrackerAuthenticationError(
+            "Approved Flow session could not be read back from the local "
+            "cache. Check local cache access and renew the session again.")
+
+
 def launch_interactive_login(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
@@ -499,6 +552,15 @@ def launch_interactive_login(
     a browser-only flow in a non-Qt host such as ComfyUI. This bypasses only
     the thread guard; it does not dispatch to the main thread or make Qt
     operations thread-safe. Authentication and session caching still run.
+
+    Raises:
+        TrackerAuthenticationError: Interaction is disabled, another browser
+            approval is pending, or saved credentials do not match approval.
+        RuntimeError: A worker requests login without the explicit bypass.
+
+    Side Effects:
+        Saves SGTK credentials and retires process-local clients and statuses
+        after approval. A cancelled approval preserves the previous cache.
     """
     if not _interactive_allowed(True):
         raise TrackerAuthenticationError("Interactive login is disabled")
@@ -507,16 +569,33 @@ def launch_interactive_login(
             'ShotGrid sign-in is required. Sign in from the main '
             'application window, then retry the queued operation.'
         )
-    session_data = sgtk.authentication.app_session_launcher.process(
-        base_url,
-        product=product,
-        browser_open_callback=lambda url: browser_open_callback(url),
-    )
-
-    # session_data is typically: (host, login, session_token, session_metadata)
-    sgtk.authentication.session_cache.cache_session_data(*session_data)
-    sgtk.authentication.session_cache.set_current_host(host=session_data[0])
-    sgtk.authentication.session_cache.set_current_user(host=session_data[0], login=session_data[1]) #Update user
+    if not _session_renewal_lock.acquire(blocking=False):
+        raise TrackerAuthenticationError(
+            "Flow session renewal is already in progress")
+    try:
+        log.info("Flow session renewal: requesting browser approval")
+        session_data = sgtk.authentication.app_session_launcher.process(
+            base_url,
+            product=product,
+            browser_open_callback=browser_open_callback,
+        )
+        log.info("Flow session renewal: approval received; saving cache")
+        try:
+            sgtk.authentication.session_cache.cache_session_data(*session_data)
+            sgtk.authentication.session_cache.set_current_host(
+                host=session_data[0])
+            sgtk.authentication.session_cache.set_current_user(
+                host=session_data[0], login=session_data[1])
+            _verify_saved_session(*session_data[:3])
+            log.info("Flow session renewal: approved cache readback verified")
+        finally:
+            # Even a partially saved approval may replace the token on disk.
+            invalidate_session_cache()
+    except Exception as error:
+        log.warning("Flow session renewal failed (%s)", type(error).__name__)
+        raise
+    finally:
+        _session_renewal_lock.release()
 
 
 def build_shotgun_connection_from_user(
@@ -524,8 +603,23 @@ def build_shotgun_connection_from_user(
     base_url: str = SHOTGRID_URL,
     *, allow_interactive: Optional[bool] = None,
 ) -> shotgun.Shotgun:
-    """
-    Create a shotgun_api3.Shotgun instance using the user's session token.
+    """Build an unverified plain client from a personal SGTK token.
+
+    Args:
+        user: SGTK identity providing the saved token and proxy settings.
+        base_url: Flow site for the new client.
+        allow_interactive: Whether Toolkit may supply the token through its
+            connection wrapper. False reads the saved token directly.
+
+    Returns:
+        Independent client using the artist's proxy, with lazy connection.
+
+    Raises:
+        TrackerAuthenticationError: No saved token is available.
+
+    Notes:
+        Construction performs no API validation. Login helpers verify the
+        token and identity before returning a usable session.
     """
     if _interactive_allowed(allow_interactive):
         sg_sgtk = user.create_sg_connection()
@@ -538,7 +632,10 @@ def build_shotgun_connection_from_user(
     if not token:
         raise TrackerAuthenticationError("No saved ShotGrid session token")
 
-    return shotgun.Shotgun(base_url, session_token=token)
+    return shotgun.Shotgun(
+        base_url, session_token=token, connect=False,
+        http_proxy=getattr(user, "http_proxy", None),
+    )
 
 
 def validate_connection(sg: shotgun.Shotgun) -> bool:
@@ -549,6 +646,100 @@ def validate_connection(sg: shotgun.Shotgun) -> bool:
     fields = ["name", "project"]
     results = sg.find("Project", filters, fields)
     return bool(results)
+
+
+def _personal_session(
+    base_url: str, product: str,
+) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
+    """Verify saved personal credentials without implicit Toolkit renewal.
+
+    Args:
+        base_url: Flow site to authenticate against.
+        product: Product name used to resolve the cached SGTK identity.
+
+    Returns:
+        Plain API client and verified HumanUser in the existing login shape.
+
+    Raises:
+        TrackerAuthenticationError: Saved credentials or identity are missing.
+        TrackerSessionExpiredError: Flow rejects the saved personal token.
+        Exception: Transport and other API failures remain distinguishable.
+
+    Side Effects:
+        Reads SGTK's cache and queries Flow with a 10-second HTTP timeout and
+        one RPC attempt. Restores normal settings on the returned client.
+    """
+    try:
+        user = ensure_sgtk_user(
+            base_url=base_url, product=product, allow_interactive=False)
+        if user is None:
+            raise TrackerAuthenticationError("No saved Flow artist")
+        sg = build_shotgun_connection_from_user(
+            user, base_url=base_url, allow_interactive=False)
+        timeout = sg.config.timeout_secs
+        attempts = sg.config.max_rpc_attempts
+        try:
+            sg.config.timeout_secs = 10
+            sg.config.max_rpc_attempts = 1
+            if not validate_connection(sg):
+                raise RuntimeError(
+                    "User test failed: query returned no active projects")
+            sg_user = sg.find_one(
+                "HumanUser", [["login", "is", user.login]],
+                ["name", "id", "login"],
+            )
+        finally:
+            sg.config.timeout_secs = timeout
+            sg.config.max_rpc_attempts = attempts
+    except shotgun.AuthenticationFault as error:
+        raise TrackerSessionExpiredError(
+            "Saved ShotGrid session is invalid or expired") from error
+    if (not isinstance(sg_user, dict)
+            or sg_user.get("type") != "HumanUser" or not sg_user.get("id")
+            or not sg_user.get("login")):
+        raise TrackerAuthenticationError(
+            "Unable to resolve the current Flow HumanUser")
+    sg_user = dict(sg_user)
+    login = sg_user.pop("login")
+    sg_user["_login"] = login.split("@")[0]
+    return sg, sg_user
+
+
+def renew_session(
+    base_url: str = SHOTGRID_URL,
+    product: str = DEFAULT_PRODUCT,
+    browser_open_callback: Callable[[str], Any] = webbrowser.open,
+    *,
+    force: bool = False,
+) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
+    """Approve and verify one new personal Flow session explicitly.
+
+    Args:
+        base_url: Flow site used for browser approval and verification.
+        product: Application name displayed during approval.
+        browser_open_callback: Browser opener; never pass Qt worker callbacks.
+        force: Permit a caller-verified, browser-only worker flow. The global
+            noninteractive environment policy still takes precedence.
+
+    Returns:
+        Fresh plain API client and verified personal HumanUser.
+
+    Raises:
+        TrackerAuthenticationError: Login is disabled or already in progress.
+        TrackerSessionExpiredError: Flow rejects the approved token.
+        RuntimeError: A worker requests login without the explicit bypass.
+        Exception: Approval or verification fails; no second login is opened.
+
+    Side Effects:
+        Opens the browser, waits for SGTK approval and updates saved personal
+        credentials. Retires cached clients and statuses. Ignores script
+        credentials and never retries tracker writes.
+    """
+    launch_interactive_login(
+        base_url=base_url, product=product,
+        browser_open_callback=browser_open_callback, force=force,
+    )
+    return _personal_session(base_url, product)
 
 
 # --------------------------------------------------------------------------------------
@@ -566,7 +757,8 @@ def _sgtk_login_uncached(
     If script credentials are available through STUDIO_SCRIPT_NAME and
     STUDIO_SCRIPT_KEY, script authentication is attempted first.
     Falls back to interactive SGTK user authentication when script auth is not
-    configured or fails.
+    configured or fails and interaction is allowed. Missing or rejected
+    personal sessions receive at most one browser approval attempt.
     """
     script_name, script_key = _script_credentials()
     interactive = _interactive_allowed(allow_interactive)
@@ -578,41 +770,13 @@ def _sgtk_login_uncached(
                 raise
             log.warning("Script login failed, falling back to SGTK user login: %s", exc)
 
-    user = ensure_sgtk_user(base_url=base_url, product=product,
-                            allow_interactive=interactive)
-    if not user:
-        raise RuntimeError("User authentication failed: no default user after login.")
-
-    sg = build_shotgun_connection_from_user(
-        user, base_url=base_url, allow_interactive=interactive)
-
     try:
-        if not validate_connection(sg):
-            raise RuntimeError("User test failed: connection works but query returned no results.")
-    except shotgun.AuthenticationFault as e:
+        return _personal_session(base_url, product)
+    except TrackerAuthenticationError:
         if not interactive:
-            raise TrackerAuthenticationError(
-                "Saved ShotGrid session is invalid or expired") from e
-        log.warning("ShotGrid session needs refresh: %s", e)
-        launch_interactive_login(base_url=base_url, product=product)
-        user = ensure_sgtk_user(base_url=base_url, product=product)
-        sg = build_shotgun_connection_from_user(user, base_url=base_url)
-        if not validate_connection(sg):
-            raise RuntimeError(
-                "User test failed after session refresh: connection works but query returned no results."
-            )
-
-    sg_user = sg.find_one("HumanUser", [["login", "is", user.login]], ["name", "id", "login"])
-    if not sg_user:
-        raise RuntimeError("Unable to resolve ShotGrid HumanUser for current login.")
-
-    login = sg_user.get("login")
-    if not login:
-        raise RuntimeError("Resolved ShotGrid HumanUser is missing a login value.")
-
-    sg_user["_login"] = login.split("@")[0] if "@" in login else login
-    del sg_user["login"]
-    return sg, sg_user
+            raise
+        log.info("Personal Flow session requires browser approval")
+        return renew_session(base_url=base_url, product=product)
 
 
 @lru_cache(maxsize=1)
@@ -620,7 +784,10 @@ def _sgtk_login_cached(
     base_url: str = SHOTGRID_URL,
     product: str = DEFAULT_PRODUCT,
     *, allow_interactive: Optional[bool] = None,
+    _generation: int = 0,
 ) -> Tuple[shotgun.Shotgun, Dict[str, Any]]:
+    """Cache a login under its policy and invalidation generation."""
+    # Generation separates results from logins still running at invalidation.
     return _sgtk_login_uncached(base_url=base_url, product=product,
                                 allow_interactive=allow_interactive)
 
@@ -631,14 +798,35 @@ def sgtk_login(
     *, allow_interactive: Optional[bool] = None,
     raise_on_error: bool = False,
 ) -> Tuple[Optional[shotgun.Shotgun], Optional[Dict[str, Any]]]:
-    """
-    Returns (sg, user) on success, otherwise (None, None).
-    Only successful results are cached.
+    """Return independent copies of a successful cached login.
+
+    Args:
+        base_url: Flow site to authenticate against.
+        product: Application name displayed during browser approval.
+        allow_interactive: Default to main-thread interaction; False disables
+            all login UI. The environment can prohibit interaction globally.
+        raise_on_error: Preserve authentication and transport exceptions
+            instead of returning the legacy failure tuple.
+
+    Returns:
+        Client and user, or (None, None) on failure unless strict mode is set.
+
+    Raises:
+        TrackerSessionExpiredError: Strict noninteractive personal login is
+            rejected, or approved credentials are rejected on verification.
+        Exception: Other strict login failures retain their original type.
+
+    Side Effects:
+        Caches successful logins and updates the non-secret local user profile.
+        Allowed interactive calls may approve one new personal session.
+        Invalidating a session retires the cached source for future calls;
+        existing client copies remain caller-owned.
     """
     try:
         sg, user = _sgtk_login_cached(
             base_url=base_url, product=product,
-            allow_interactive=_interactive_allowed(allow_interactive))
+            allow_interactive=_interactive_allowed(allow_interactive),
+            _generation=_session_cache_generation())
         try:
             update_user_cache(sg, user, base_url=base_url)
         except Exception as cache_exc:
@@ -647,7 +835,7 @@ def sgtk_login(
         # client. shotgun_api3 connections are not safe to share concurrently.
         return copy.deepcopy(sg), copy.deepcopy(user)
     except Exception as exc:
-        _sgtk_login_cached.cache_clear()
+        invalidate_session_cache()
         # In production you may want narrower exceptions, but keep one catch here for the public API.
         if threading.current_thread() is threading.main_thread():
             log.exception("SGTK/ShotGrid auth failed: %s", exc)

@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.7.0.2 - 2026-10-22
+
+- Read back the approved token and default site/user from Toolkit's disk cache
+  before completing renewal. Reject missing or mismatched saved credentials,
+  even when an older token remains valid.
+- Record credential-free renewal stages for support diagnostics.
+
+## 1.7.0.1 - 2026-10-22
+
+- Add explicit personal session renewal with verified HumanUser results and
+  a distinct expired-session error. Keep existing login return values and
+  noninteractive farm behavior compatible.
+- Retire cached clients after browser approval; provider-owned connections
+  refresh on next use. Expose cache invalidation for external login updates.
+- Recover rejected credentials during any login phase with at most one
+  browser approval. Network failures do not trigger renewal.
+- Prevent overlapping browser approvals within one process and bound personal
+  verification without changing normal request settings on returned clients.
+- Existing caller-owned connections must be reacquired after renewal.
+  Hub 2.29.2.0 refreshes retained plugin clients after explicit renewal.
+
 ## 1.7.0.0 - 2026-10-21
 
 - Recognize single-letter version variants such as v005a consistently in

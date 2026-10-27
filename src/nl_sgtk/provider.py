@@ -938,13 +938,21 @@ class NlSgtkProvider:
         }
 
     def _connection(self) -> Tuple[Any, Dict[str, Any]]:
+        """Reuse this thread's client until its session is invalidated.
+
+        Explicitly injected clients remain caller-owned. Package-managed
+        clients are reacquired after renewal without replaying operations.
+        """
         # Explicit injected clients remain supported by existing adapters.
         if self._sg is not None:
             return self._sg, dict(self._user or {})
-        connection = getattr(self._connections, "value", None)
-        if connection is None:
-            from .nl_sgtk import sgtk_login
+        from .nl_sgtk import _session_cache_generation, sgtk_login
 
+        generation = _session_cache_generation()
+        connection = getattr(self._connections, "value", None)
+        if (connection is None
+                or getattr(self._connections, "generation", None)
+                != generation):
             sg, user = sgtk_login(
                 product="nl_core", allow_interactive=self.allow_interactive,
                 raise_on_error=True)
@@ -952,6 +960,7 @@ class NlSgtkProvider:
                 raise ConnectionError("nl_sgtk could not authenticate")
             connection = (sg, dict(user))
             self._connections.value = connection
+            self._connections.generation = generation
         return connection[0], dict(connection[1])
 
     def _publish_row(

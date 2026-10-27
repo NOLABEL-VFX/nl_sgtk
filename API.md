@@ -111,7 +111,9 @@ select a Task. `fetch_task()` includes the project's `sg_structure_map`.
       The default allows interaction only on the main thread.
   - Caches the authenticated source session, then deep-copies the ShotGrid
     client and user data for each call so parallel callers do not share one
-    mutable API client.
+    mutable API client. Personal verification uses a raw client without
+    implicit Toolkit renewal, including for interactive callers. The client's
+    normal request settings are restored after bounded login verification.
   - Uses script authentication first when both `STUDIO_SCRIPT_NAME` and `STUDIO_SCRIPT_KEY` are set.
   - Falls back to interactive SGTK user login otherwise.
       Fallback runs only when interaction is allowed.
@@ -132,6 +134,56 @@ select a Task. `fetch_task()` includes the project's `sg_structure_map`.
   - Runs browser app-session login and caches the session for SGTK.
   - Raises `RuntimeError` outside the main thread unless `force=True`.
     See **Background authentication** for the Qt restriction and safe bypass.
+  - Only one browser approval may run at a time in this process. A concurrent
+    request raises `TrackerAuthenticationError` without opening another browser.
+  - After saving approval, invalidates cached login clients and status data.
+  - Reads back the approved token, current site and current user from disk.
+    Missing or mismatched data raises `TrackerAuthenticationError`; an older
+    valid session cannot make a failed save look successful. Progress logs
+    identify approval and persistence stages without recording credentials.
+- `renew_session(base_url=SHOTGRID_URL, product=DEFAULT_PRODUCT,
+  browser_open_callback=webbrowser.open, *, force=False)`
+  - Explicitly requests a personal browser session and returns a verified
+    `(sg, user)` pair. Never substitutes script credentials for the artist.
+  - Uses the same thread and environment guards as `launch_interactive_login`.
+    Browser approval uses SGTK's timeout; verification uses a plain API client
+    with a 10-second HTTP timeout and one RPC attempt. Normal client settings
+    are restored before returning the connection.
+  - Always raises on approval, verification or transport failure. A rejected
+    token raises `TrackerSessionExpiredError`; it never opens a second login.
+- `invalidate_session_cache()`
+  - Clears this process's cached clients and statuses without deleting saved
+    SGTK credentials or opening login UI. Call after a reported authentication
+    fault, or after updating the SGTK cache outside this library.
+  - Subsequent `sgtk_login()` calls and provider-owned connections reacquire
+    authentication. Already returned or explicitly injected clients remain
+    caller-owned; obtain a new client before retrying. No writes are replayed.
+  - Invalidation is process-local. Other applications must reacquire their
+    own clients after a shared SGTK cache update; no IPC or credential-file
+    watching is introduced.
+- `TrackerSessionExpiredError(TrackerAuthenticationError)`
+  - Distinguishes rejected personal tokens from missing login and transport
+    failures. Strict login (`raise_on_error=True`) preserves this subtype and
+    its original `AuthenticationFault` cause. The legacy `(None, None)`
+    failure return remains unchanged.
+  - Uncached interactive login renews a rejected or missing personal session
+    once, including rejection during client construction or HumanUser lookup.
+    Noninteractive login never opens UI. Cached successes are not remotely
+    revalidated on every call; invalidate them when an operation reports expiry.
+
+```python
+# On an explicit sign-in action (main thread by default):
+sg, artist = nl_sgtk.renew_session(product="NL Hub")
+
+# A worker can report expiry for its host to handle on the GUI thread:
+try:
+    sg, artist = nl_sgtk.sgtk_login(
+        allow_interactive=False, raise_on_error=True,
+    )
+except nl_sgtk.TrackerSessionExpiredError:
+    # Signal the host to offer renewal; do not open login UI here.
+    pass
+```
 
 ## Task / Entity Context APIs
 

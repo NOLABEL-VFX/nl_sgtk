@@ -36,8 +36,10 @@ def test_expired_session_uses_raw_client_without_toolkit_renewal(monkeypatch):
                            impl=SimpleNamespace(get_session_token=lambda: "fake"))
     monkeypatch.setattr(api.sgtk.authentication, "ShotgunAuthenticator",
                         lambda: SimpleNamespace(get_default_user=lambda: user))
-    client = SimpleNamespace(find=Mock(side_effect=api.shotgun.AuthenticationFault(
-        "expired")))
+    client = SimpleNamespace(
+        config=SimpleNamespace(timeout_secs=30, max_rpc_attempts=3),
+        find=Mock(side_effect=api.shotgun.AuthenticationFault("expired")),
+    )
     monkeypatch.setattr(api.shotgun, "Shotgun", lambda *a, **kw: client)
     with pytest.raises(api.TrackerAuthenticationError) as caught:
         api.sgtk_login(allow_interactive=False, raise_on_error=True)

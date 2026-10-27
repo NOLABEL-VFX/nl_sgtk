@@ -55,7 +55,11 @@ def test_allowed_login_opens_browser_and_caches_session(
         api.sgtk.authentication.app_session_launcher, 'process', launcher,
     )
     cache = Mock()
-    for name in ('cache_session_data', 'set_current_host', 'set_current_user'):
+    cache.get_session_data.return_value = {'session_token': 'test-token'}
+    cache.get_current_host.return_value = host
+    cache.get_current_user.return_value = 'artist'
+    for name in ('cache_session_data', 'set_current_host', 'set_current_user',
+                 'get_session_data', 'get_current_host', 'get_current_user'):
         monkeypatch.setattr(
             api.sgtk.authentication.session_cache, name, getattr(cache, name),
         )
