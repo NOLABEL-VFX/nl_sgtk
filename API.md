@@ -44,6 +44,89 @@ This document tracks the **main public API functions** exposed by `nl_sgtk.py`.
 
 ## Authentication / Session
 
+### Web applications and shared ComfyUI hosts
+
+Use `nl_sgtk.WebAuthenticator` for per-browser authentication. This is
+independent of `sgtk_login()`, Toolkit's default user and script credentials.
+Install the optional `nl_sgtk[web]` extra. Existing desktop imports and
+authentication do not require the extra.
+
+```python
+import os
+from nl_sgtk import WebAuthenticator, WebAuthenticationRequired
+
+# Generate the Fernet key once and keep it in backend secret storage.
+# Reuse the same key after restarts; never put it in the database or JS.
+auth = WebAuthenticator(
+    encryption_key=os.environ["NL_WEB_AUTH_KEY"].encode("ascii"),
+    product="ComfyUI",
+    database="web_sessions.sqlite3",
+)
+
+# Run this in a worker for an explicitly requested browser sign-in.
+# deliver_url must target only that browser's authenticated pending-login
+# channel and return False if delivery is cancelled. None/True mean success.
+grant = auth.login(browser_open_callback=deliver_url)
+try:
+    # Set an HttpOnly, Secure, SameSite cookie to grant.browser_token.
+    # Return only grant.user in a public JSON response.
+    pass
+finally:
+    grant.close()
+
+# On every protected HTTP request, read that request's cookie.
+with auth.authenticate(request_cookie) as session:
+    tasks = nl_sgtk.get_user_tasks(session.user, sg=session.sg)
+```
+
+- `WebAuthenticator(base_url=SHOTGRID_URL, *, encryption_key,
+  product="NL Web App", database=":memory:", session_lifetime=28800,
+  idle_timeout=1800, http_proxy=None)` owns an app-scoped SQLite registry.
+  The Fernet encryption key is required and must remain outside that database.
+  Persistent sessions require both a persistent database and the same key.
+  Registry keys are SHA-256 hashes of random 256-bit browser session IDs,
+  scoped to the configured Flow site and application. Hashes cannot be
+  presented as browser credentials. Flow tokens are encrypted, not hashed,
+  because the backend must recover them to authenticate to Flow.
+- `auth.login(browser_open_callback, *, keep_waiting_callback=None,
+  expected_user_id=None) -> WebSession` blocks for one browser approval,
+  verifies the returned HumanUser and creates a fresh app session ID.
+  Callback delivery and cancellation must belong to the requesting browser.
+  Non-Qt worker callbacks are supported without `force=True`. The global
+  `NL_SGTK_ALLOW_INTERACTIVE=0` policy still prohibits browser approval.
+  This operation never selects or changes the local Toolkit identity/cache.
+- `auth.authenticate(browser_token, *, browser_open_callback=None,
+  keep_waiting_callback=None, expected_user_id=None) -> WebSession`
+  resolves only this browser's app session and validates its Flow token on
+  every call. It returns a new independent raw API client; verification uses
+  a 10-second HTTP timeout and one RPC attempt, then restores normal settings.
+  Missing, unknown, expired, corrupted and revoked sessions raise
+  `WebAuthenticationRequired` when no delivery callback is supplied.
+  With a callback, one new approval is attempted. Renewal of a known session
+  must retain its HumanUser. Network/transport errors never trigger approval.
+  Queued work should pass its server-recorded owner as `expected_user_id`.
+- `WebAuthenticationRequired(TrackerAuthenticationError)` has `reason`:
+  `missing`, `unknown`, `expired`, `invalid`, `revoked`, or `cancelled`.
+  Return HTTP 401 and let the requesting frontend start its login flow.
+  `WebIdentityMismatchError(TrackerAuthenticationError)` rejects another
+  user's cookie or approval; do not retry work using a replacement identity.
+- `WebSession` exposes immutable `identity: WebIdentity`, a fresh `user`
+  dictionary in the existing nl_sgtk shape, caller-owned `sg`, secret
+  `browser_token` and `renewed`. `renewed=True` means a new approval occurred
+  and the adapter must replace the browser cookie. `close()` and context
+  management close the API client. Credential fields are excluded from repr.
+  The result has no instance dictionary and is not a dataclass, preventing
+  accidental credential serialization. Return `session.user` to the frontend.
+- `WebIdentity(id, login, name)` is frozen and `as_user()` returns a fresh
+  non-secret HumanUser dictionary. Identity is obtained from Flow approval
+  and verification, never a frontend username or ComfyUI `client_id`.
+- `auth.logout(browser_token)` removes this app session; the adapter must
+  clear its cookie. It does not log the browser out of Flow. `auth.close()`
+  closes the registry; already returned clients remain caller-owned.
+
+For secure cookies, pending approval delivery, queued work and ComfyUI
+integration boundaries, see [web authentication](docs/web_auth.md).
+
 ### Optional native Core Task sessions
 
 `nl_sgtk.core` is a Python submodule with a lazy optional dependency on

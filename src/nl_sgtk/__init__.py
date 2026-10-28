@@ -1,6 +1,13 @@
 from . import nl_sgtk as _nl_sgtk
 from .nl_sgtk import *  # noqa: F401,F403
 from .core import Task, get_task  # noqa: F401
+from .web_auth import (  # noqa: F401
+    WebAuthenticationRequired,
+    WebAuthenticator,
+    WebIdentity,
+    WebIdentityMismatchError,
+    WebSession,
+)
 from .tickets import (  # noqa: F401
     PipelineGroup,
     TicketAttachmentError,

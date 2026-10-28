@@ -34,6 +34,13 @@ project_context = nl_sgtk.get_project_context(project_id=101, sg=sg)
 active_projects = nl_sgtk.list_active_projects(sg=sg)
 ```
 
+For web applications and shared ComfyUI hosts, use the separate
+`nl_sgtk.WebAuthenticator` API from the optional `nl_sgtk[web]` extra.
+It supports browser approval, hashed app session IDs, encrypted Flow
+credentials, and per-request user isolation without selecting the backend
+machine's default user. See [web authentication](docs/web_auth.md) for
+the cookie, request, and queued-job integration contract.
+
 Create a technical Ticket for Pipeline Development:
 
 ```python

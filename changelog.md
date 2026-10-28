@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.8.0.0 - 2026-10-28
+
+- Add optional web authentication for shared applications: browser approval,
+  hashed app session IDs, encrypted backend Flow credentials and a separate
+  API client for each request. No local/default artist or script fallback.
+- Verify browser sessions against Flow on every authentication call; renew
+  rejected sessions once without switching users. Support cancellation,
+  idle/absolute expiry, persistent registries and per-session logout.
+- Add owner checks for queued work and document ComfyUI request, websocket
+  and job integration boundaries. Host-app wiring is not installed by this
+  API change. Existing desktop authentication remains compatible.
+
 ## 1.7.0.2 - 2026-10-22
 
 - Read back the approved token and default site/user from Toolkit's disk cache
