@@ -1,0 +1,22 @@
+name: Assign issues
+
+on:
+  issues:
+    types: [opened, reopened, transferred]
+
+permissions:
+  issues: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assign issue to Isoide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: >-
+          gh api --method POST
+          "repos/$GH_REPO/issues/$ISSUE_NUMBER/assignees"
+          -f 'assignees[]=Isoide'
