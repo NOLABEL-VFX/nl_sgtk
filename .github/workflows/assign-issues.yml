@@ -1,14 +1,18 @@
-name: Assign issues
+name: Assign issues and request reviews
 
 on:
   issues:
     types: [opened, reopened, transferred]
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   issues: write
+  pull-requests: write
 
 jobs:
-  assign:
+  assign-issue:
+    if: github.event_name == 'issues'
     runs-on: ubuntu-latest
     steps:
       - name: Assign issue to Isoide
@@ -20,3 +24,20 @@ jobs:
           gh api --method POST
           "repos/$GH_REPO/issues/$ISSUE_NUMBER/assignees"
           -f 'assignees[]=Isoide'
+
+  request-review:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.user.login != 'Isoide' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request review from Isoide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: >-
+          gh api --method POST
+          "repos/$GH_REPO/pulls/$PR_NUMBER/requested_reviewers"
+          -f 'reviewers[]=Isoide'
