@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.1.0 - 2026-11-25
+
+- Remove the `python-dateutil` dependency. Hours Off timestamp handling now
+  uses Python's standard library and the machine's local timezone; production
+  workstations must use Europe/Warsaw.
+
 ## 1.9.0.0 - 2026-11-25
 
 - Add the direct Flow Hours Off overlay API: FIFO previews, source balances,

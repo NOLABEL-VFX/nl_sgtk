@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
-
-from dateutil.tz import gettz
 
 from . import hours_off as rules
 
@@ -21,6 +19,13 @@ REDEEMED_VALUE_FIELD = "sg_reedeemed_value"
 REDEEMED_LINK_FIELD = "sg_reedeemed_additional_timelogs"
 REDEEM_ID_FIELD = "sg_reedeemed_id"
 METADATA_KEY = "redeem_timelog"
+
+
+def _local_now() -> datetime:
+    """Return local wall time; production machines use Europe/Warsaw."""
+    return datetime.now().astimezone()
+
+
 FIELDS = list(dict.fromkeys(rules.FIELDS + [
     REDEEMED_VALUE_FIELD, REDEEM_ID_FIELD,
 ]))
@@ -309,9 +314,9 @@ def snapshot(sg: Any, user_id: int, usage_date: Any,
     """Read and validate a user's available Hours Off for one date."""
     from .hours_off import validate_usage
 
-    as_of = datetime.now(gettz("Europe/Warsaw")).date()
+    as_of = _local_now().date()
     if today is not None and today != as_of:
-        raise ValueError("Hours Off snapshots use today's Europe/Warsaw date.")
+        raise ValueError("Hours Off snapshots use today's local date.")
     usage = validate_usage(usage_date, as_of)
     if usage != as_of:
         raise ValueError("Hours Off can only be redeemed for today.")
@@ -397,8 +402,8 @@ def redeem(sg: Any, *, user: Dict[str, Any], usage_date: Any, amount: int,
     if canonical_id != redeem_id:
         raise ValueError("Redemption UUID must use canonical lowercase form.")
     usage = validate_usage(usage_date,
-                           datetime.now(gettz("Europe/Warsaw")).date())
-    if usage != datetime.now(gettz("Europe/Warsaw")).date():
+                           _local_now().date())
+    if usage != _local_now().date():
         raise ValueError("Hours Off can only be redeemed for today.")
     if (target_task.get("type") != "Task" or not target_task.get("id")
             or target_project.get("type") != "Project"
@@ -629,15 +634,15 @@ def redeem(sg: Any, *, user: Dict[str, Any], usage_date: Any, amount: int,
             "replayed": False}
 
 
-def _created_warsaw_date(row: Dict[str, Any]) -> date:
+def _created_local_date(row: Dict[str, Any]) -> date:
     value = row.get("created_at")
     if isinstance(value, str):
         value = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if not isinstance(value, datetime):
         raise ReconciliationRequired("Redemption creation date is unavailable.")
     if value.tzinfo is None:
-        value = value.replace(tzinfo=gettz("UTC"))
-    return value.astimezone(gettz("Europe/Warsaw")).date()
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone().date()
 
 
 def withdraw(sg: Any, *, user: Dict[str, Any], redeem_id: str,
@@ -656,8 +661,8 @@ def withdraw(sg: Any, *, user: Dict[str, Any], redeem_id: str,
         raise ValueError("Redemption session was not found for this user.")
     if any(_user_id(row) != user_id for row in session):
         raise ValueError("Redemption session contains another user's TimeLog.")
-    current = today or datetime.now(gettz("Europe/Warsaw")).date()
-    creation_dates = {_created_warsaw_date(row) for row in session}
+    current = today or _local_now().date()
+    creation_dates = {_created_local_date(row) for row in session}
     if creation_dates != {current}:
         raise ValueError("A redemption can only be withdrawn on its creation day.")
     infos = [_redeem_data(row) for row in session]
@@ -722,7 +727,7 @@ def withdrawable_sessions(sg: Any, user_id: int,
     """List complete applied UUID sessions created today for one artist."""
     if type(user_id) is not int or user_id <= 0:
         raise ValueError("A positive HumanUser ID is required.")
-    current = today or datetime.now(gettz("Europe/Warsaw")).date()
+    current = today or _local_now().date()
     rows = fetch_user_timelogs(sg, user_id)
     groups: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
@@ -733,7 +738,7 @@ def withdrawable_sessions(sg: Any, user_id: int,
             groups.setdefault(redeem_id, []).append(row)
     result = []
     for redeem_id, session in groups.items():
-        if {_created_warsaw_date(row) for row in session} != {current}:
+        if {_created_local_date(row) for row in session} != {current}:
             continue
         infos = [_redeem_data(row) for row in session]
         requested = {info.get("requested_minutes") for info in infos}

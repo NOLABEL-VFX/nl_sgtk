@@ -163,19 +163,23 @@ must use `nl_sgtk.redeem_timelog`; do not mix the two write protocols.
 - `snapshot(sg, user_id, usage_date)` returns complete FIFO lots, remaining
   eligible balance, daily capacity, date, reconciliation state and a
   fingerprint for submit-time revalidation. It must use the current
-  Europe/Warsaw date and reads the artist's complete visible TimeLog history.
+  local date (production workstations must use Europe/Warsaw) and reads the
+  artist's complete visible TimeLog history. This requires only Python's
+  standard library.
 - `allocate(lots, minutes)` returns oldest-first source IDs and whole-minute
   amounts. `coverage(row)` returns only a validated applied overlay value.
 - `redeem(sg, *, user, usage_date, amount, target_task, target_project,
   expected_fingerprint, redeem_id)` requires the artist's HumanUser, today's
-  Warsaw date, and the current preview fingerprint. It prepares zero-duration
+  local date (Europe/Warsaw in production), and the current preview
+  fingerprint. It prepares zero-duration
   child TimeLogs, stores positive usage in `sg_reedeemed_value`, decrements the
   source value, and appends source links in `sg_reedeemed_additional_timelogs`.
   Use a fresh canonical UUID per user submission; retry uncertain requests only
   with the same UUID. Stale previews raise `BalanceChanged` with a new snapshot.
   Uncertain writes must be inspected by UUID; never retry with a new UUID.
 - `withdraw(sg, *, user, redeem_id)` returns a whole applied session's values
-  to its sources only on the Flow creation day in Europe/Warsaw. Links remain
+  to its sources only on the Flow creation day in the machine's local timezone
+  (production workstations must use Europe/Warsaw). Links remain
   for audit. `withdrawable_sessions(sg, user_id, today=None)` lists complete
   same-day sessions for a UI. Incomplete or inconsistent operations raise
   `ReconciliationRequired` and must be reviewed, not replayed under a new ID.

@@ -1,11 +1,9 @@
 """Verify Flow Hours Off overlays and UUID-session lifecycle."""
 
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pytest
-from dateutil.tz import gettz
-
 from nl_sgtk import redeem_timelog as api
 
 
@@ -35,7 +33,7 @@ class FakeShotgun:
     def batch(self, calls):
         working = deepcopy(self.rows)
         result = []
-        created = datetime.now(gettz("UTC")).isoformat()
+        created = datetime.now(timezone.utc).isoformat()
         for call in calls:
             if call["request_type"] == "create":
                 row_id = self.next_id
@@ -74,7 +72,7 @@ def _source(row_id, work_date, amount, project_id):
 
 
 def _today():
-    return datetime.now(gettz("Europe/Warsaw")).date()
+    return datetime.now().astimezone().date()
 
 
 def _rows():
