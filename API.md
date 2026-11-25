@@ -127,6 +127,69 @@ with auth.authenticate(request_cookie) as session:
 For secure cookies, pending approval delivery, queued work and ComfyUI
 integration boundaries, see [web authentication](docs/web_auth.md).
 
+## Hours Off accounting and overlay API
+
+`nl_sgtk.hours_off` is a pure-Python, Qt-free protocol shared by NL Hub and
+Local Automation. It performs no tracker reads or writes. All durations are
+whole minutes. Tracker-specific field codes are constants in this module.
+
+- `source_rows(raw_rows, usage_date)` returns FIFO lots with earned, used,
+  remaining, expiry and eligibility values. Supply complete artist history,
+  including linked deductions; dangling or malformed links raise ValueError.
+- `allocate(lots, minutes)` returns per-source artist/production deductions,
+  rejecting overdrafts. Remaining production amounts are exhausted exactly.
+- `validate_usage(value, today)` enforces current month and previous month
+  through the inclusive 5th. Use a Europe/Warsaw `today` from the caller.
+- `expires_on(work_date)` includes six following complete calendar months.
+- `coverage(raw_row)` returns artist daily coverage. Only recognized active
+  deductions flip sign; controls and cancelled/prepared deductions return zero.
+  Read `created_by` and `updated_by`: `trusted_deduction(raw_row)` requires
+  the same ApiUser creator/editor. Artist-authored metadata cannot grant credit.
+- `daily_rows(raw_rows)` creates read-only grouped UI rows. Synthetic
+  project/task ID 0 is a display marker, never a valid tracker write target.
+- `available_for_day(raw_rows, usage_date)` caps new usage at remaining credit
+  and the ordinary eight-hour allowance. AD overtime is accounted separately.
+- `parse_negative_hours(text)` accepts `-H:MM` or negative decimal hours and
+  returns positive whole minutes. Nonfinite/fractional-minute values fail.
+- `info`, `metadata`, `patch_metadata`, `is_accounting`, `is_ad` and `minutes`
+  handle the versioned metadata and preserve unrelated original/current data.
+
+The older `nl_sgtk.hours_off` module describes signed-duration deductions and
+is retained for historical data/migration compatibility. New overlay writers
+must use `nl_sgtk.redeem_timelog`; do not mix the two write protocols.
+
+`nl_sgtk.redeem_timelog` reads and writes Flow TimeLogs directly:
+
+- `snapshot(sg, user_id, usage_date)` returns complete FIFO lots, remaining
+  eligible balance, daily capacity, date, reconciliation state and a
+  fingerprint for submit-time revalidation. It must use the current
+  Europe/Warsaw date and reads the artist's complete visible TimeLog history.
+- `allocate(lots, minutes)` returns oldest-first source IDs and whole-minute
+  amounts. `coverage(row)` returns only a validated applied overlay value.
+- `redeem(sg, *, user, usage_date, amount, target_task, target_project,
+  expected_fingerprint, redeem_id)` requires the artist's HumanUser, today's
+  Warsaw date, and the current preview fingerprint. It prepares zero-duration
+  child TimeLogs, stores positive usage in `sg_reedeemed_value`, decrements the
+  source value, and appends source links in `sg_reedeemed_additional_timelogs`.
+  Use a fresh canonical UUID per user submission; retry uncertain requests only
+  with the same UUID. Stale previews raise `BalanceChanged` with a new snapshot.
+  Uncertain writes must be inspected by UUID; never retry with a new UUID.
+- `withdraw(sg, *, user, redeem_id)` returns a whole applied session's values
+  to its sources only on the Flow creation day in Europe/Warsaw. Links remain
+  for audit. `withdrawable_sessions(sg, user_id, today=None)` lists complete
+  same-day sessions for a UI. Incomplete or inconsistent operations raise
+  `ReconciliationRequired` and must be reviewed, not replayed under a new ID.
+
+Flow `duration` never changes on sources or overlay children. Existing empty
+source balances mean the original source duration; migration must populate
+remaining values and validate historical records before enabling writes.
+Cross-project source-to-child links are supported by the tested multi-entity
+field. Flow batches are not transactions or compare-and-swap operations:
+submit-time revalidation greatly narrows stale-write risk, but the API cannot
+guarantee serialization against simultaneous external writers. The Hub is the
+only supported writer. Local Automation performs read-only reconciliation and
+optional expiry reminders.
+
 ### Optional native Core Task sessions
 
 `nl_sgtk.core` is a Python submodule with a lazy optional dependency on

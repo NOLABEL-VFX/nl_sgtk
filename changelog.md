@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.0.0 - 2026-11-25
+
+- Add the direct Flow Hours Off overlay API: FIFO previews, source balances,
+  zero-duration allocation records, UUID sessions, same-day withdrawal,
+  stale-snapshot checks and reconciliation guards.
+- Keep the signed-duration `hours_off` protocol documented for legacy data;
+  new overlay integrations must use `redeem_timelog` exclusively.
+
 ## 1.8.0.0 - 2026-10-28
 
 - Add optional web authentication for shared applications: browser approval,

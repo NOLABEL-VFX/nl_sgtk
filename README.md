@@ -41,6 +41,13 @@ credentials, and per-request user isolation without selecting the backend
 machine's default user. See [web authentication](docs/web_auth.md) for
 the cookie, request, and queued-job integration contract.
 
+For the current direct Hours Off overlay workflow, use
+`nl_sgtk.redeem_timelog`. It provides full-history balance snapshots, FIFO
+allocation, zero-duration Flow writes, UUID-scoped same-day withdrawal and
+read-only coverage validation. See the
+[API reference](API.md#hours-off-accounting-and-overlay-api); the older
+`nl_sgtk.hours_off` helpers remain for legacy signed-duration data.
+
 Create a technical Ticket for Pipeline Development:
 
 ```python

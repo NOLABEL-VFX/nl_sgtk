@@ -1,5 +1,7 @@
 from . import nl_sgtk as _nl_sgtk
 from .nl_sgtk import *  # noqa: F401,F403
+from . import hours_off as hours_off  # noqa: F401
+from . import redeem_timelog as redeem_timelog  # noqa: F401
 from .core import Task, get_task  # noqa: F401
 from .web_auth import (  # noqa: F401
     WebAuthenticationRequired,
